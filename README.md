@@ -54,11 +54,20 @@ K8s Watch API
 
 ## Quick Start
 
+### Option A: Using uv (Recommended)
 ```bash
-# 1. Clone and install
+# Install uv: https://docs.astral.sh/uv/
+cd claw8s
+uv venv && source .venv/bin/activate
+uv pip install -e .
+```
+
+### Option B: Using pip
+```bash
 cd claw8s
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
+```
 
 # 2. Set up secrets
 cp .env.example .env
@@ -71,7 +80,7 @@ cp config.yaml.example config.yaml
 # 4. Run
 python main.py --config config.yaml
 # or if installed: claw8s --config config.yaml
-```
+
 
 ### Getting a Telegram Bot Token
 1. Message [@BotFather](https://t.me/BotFather) on Telegram
