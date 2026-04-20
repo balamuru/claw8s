@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "claw8s"
@@ -21,8 +21,7 @@ claw8s = "main:run"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["bot*", "tools*"]
+include = ["bot*", "tools*", "prompts*", "skills*"]
 
-[tool.setuptools.py-modules]
-# Flat modules at root
-modules = ["agent", "audit", "config", "main", "watcher"]
+[tool.setuptools]
+py-modules = ["agent", "audit", "config", "main", "watcher"]
