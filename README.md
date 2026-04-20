@@ -1,8 +1,11 @@
-# 🦅 claw8s
+<p align="center">
+  <img src="assets/banner.png" alt="claw8s" width="480"/>
+</p>
 
-Autonomous Kubernetes monitoring and remediation agent powered by Claude.
-
-**Detects** K8s incidents → **diagnoses** root cause → **acts** (with your approval) → **notifies** you via Telegram.
+<p align="center">
+  Autonomous Kubernetes monitoring and remediation agent powered by Claude.<br/>
+  <strong>Detects</strong> K8s incidents → <strong>diagnoses</strong> root cause → <strong>acts</strong> (with your approval) → <strong>notifies</strong> you via Telegram.
+</p>
 
 ---
 
