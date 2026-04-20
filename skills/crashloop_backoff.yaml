@@ -1,0 +1,53 @@
+name: crashloop_backoff
+description: "Investigate and remediate pods in CrashLoopBackOff or BackOff"
+triggers:
+  - CrashLoopBackOff
+  - BackOff
+
+steps:
+  - id: get_logs
+    tool: get_pod_logs
+    args:
+      namespace: "{{ incident.namespace }}"
+      pod_name:  "{{ incident.object_name }}"
+      tail_lines: 100
+
+  - id: describe
+    tool: describe_pod
+    args:
+      namespace: "{{ incident.namespace }}"
+      pod_name:  "{{ incident.object_name }}"
+
+  - id: classify
+    llm_classify:
+      inputs: [get_logs, describe]
+      categories:
+        oom: "Container was OOM-killed (Look for Exit Code 137 or 'OOMKilled' state)"
+        bad_config: "Application misconfiguration, missing secrets, or connection errors (Look for Exit Code 1, 'Error', or specific error messages in logs)"
+        dep_down: "Downstream dependency (DB, service) is unavailable (Look for connection refused, timeout, or DNS errors)"
+        success: "The pod is now running correctly (Look for 'Running' phase and 'Ready' status)"
+        unknown: "Cause unclear from logs and description alone"
+
+  - id: act
+    switch: "{{ classify }}"
+    cases:
+      oom:
+        escalate: "OOM detected on `{{ incident.object_name }}`. Resource limits likely need adjustment. Escalating to human for capacity review."
+      bad_config:
+        escalate: "Configuration error detected on `{{ incident.object_name }}`. Please check logs and deployment spec for missing env vars or secrets."
+      dep_down:
+        tool: restart_deployment
+        args:
+          namespace: "{{ incident.namespace }}"
+          deployment_name: "{{ incident.object_name }}" # Note: assuming deployment name matches pod prefix/object name for now or handled by a smarter tool
+          reason: "Dependency temporarily unavailable — attempting rolling restart."
+        verify:
+          tool: get_deployment_status
+          args:
+             namespace: "{{ incident.namespace }}"
+             deployment_name: "{{ incident.object_name }}"
+        summary: "Detected dependency failure. Triggered a rolling restart for `{{ incident.object_name }}` and verified status."
+      success:
+        summary: "Pod `{{ incident.object_name }}` appears to have recovered on its own. Current status is healthy."
+      unknown:
+        inconclusive: true

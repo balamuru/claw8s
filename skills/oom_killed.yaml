@@ -1,0 +1,22 @@
+name: oom_killed
+description: "Handle OOMKilling incidents"
+triggers:
+  - OOMKilling
+
+steps:
+  - id: describe
+    tool: describe_pod
+    args:
+      namespace: "{{ incident.namespace }}"
+      pod_name:  "{{ incident.object_name }}"
+
+  - id: check_resources
+    tool: get_pod_logs # Use logs to see if there's any app-level OOM info
+    args:
+      namespace: "{{ incident.namespace }}"
+      pod_name:  "{{ incident.object_name }}"
+      tail_lines: 50
+
+  - id: act
+    # OOM is usually a capacity issue, better to escalate with data
+    escalate: "Pod `{{ incident.object_name }}` in namespace `{{ incident.namespace }}` was OOMKilled. \n\nEvidence gathered: \n{{ describe.output }}"

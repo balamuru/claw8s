@@ -1,7 +1,7 @@
 <p align="center">
   <img src="assets/banner.png" alt="claw8s" width="360"/>
 </p>
-
+<h1 align="center">claw8s</h1>
 <p align="center">
   Autonomous Kubernetes monitoring and remediation agent powered by Claude.
 </p>
@@ -25,7 +25,12 @@ K8s Watch API
  asyncio incident queue
      │
      ▼
- Claw8sAgent (Claude tool-calling loop)
+ Skills Dispatch (deterministic YAML runbooks)
+     │   ├── crashloop_backoff.yaml
+     │   └── oom_killed.yaml
+     │
+     ▼ (if inconclusive)
+ Claw8sAgent (Claude open-ended loop)
      │   ├── get_pod_logs
      │   ├── describe_pod
      │   ├── list_pods
@@ -90,6 +95,40 @@ python main.py --config config.yaml
 
 ---
 
+## Soul & Skills
+
+Claw8s uses a multi-stage memory architecture to ensure safety and efficiency.
+
+### The Soul (Prompts)
+The agent's identity and safety rules are stored in `prompts/`. These are injected as the system prompt and are never evicted from the model's context window.
+- `prompts/soul.md`: Inviolable safety rules and core identity.
+- `prompts/guidelines.md`: Soft behavioral defaults and investigation strategies.
+
+### Skills (Runbooks)
+Skills are deterministic, YAML-defined procedures for known incident types. They live in `skills/`.
+- **Hybrid Execution**: Skills use a fast LLM (Haiku) for classification, but the procedural logic is fixed.
+- **Fallback**: If a skill cannot resolve an incident, it hands off all findings to the main agent loop.
+
+Example skill (`skills/crashloop_backoff.yaml`):
+```yaml
+name: crashloop_backoff
+triggers: [CrashLoopBackOff]
+steps:
+  - id: get_logs
+    tool: get_pod_logs
+  - id: classify
+    llm_classify:
+      categories:
+        oom: "Exit Code 137"
+        bad_config: "Exit Code 1"
+  - id: act
+    switch: "{{ classify }}"
+    cases:
+      oom: { escalate: "Capacity issue detected." }
+```
+
+---
+
 ## Extending
 
 ### Adding a new tool
@@ -137,6 +176,12 @@ claw8s/
 ├── watcher.py         ← K8s event watcher (debounced)
 ├── bot/
 │   └── telegram.py    ← Telegram bot (alerts + approval)
+├── prompts/           ← Markdown identity & safety rules
+│   ├── soul.md
+│   └── guidelines.md
+├── skills/            ← YAML-defined runbooks
+│   ├── _runner.py     ← Skill execution engine
+│   └── *.yaml         ← Skill definitions
 ├── tools/
 │   ├── registry.py    ← Tool decorator + dispatch
 │   └── kubectl.py     ← K8s tools (read + mutate)

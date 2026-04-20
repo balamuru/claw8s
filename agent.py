@@ -24,26 +24,15 @@ from config import AgentConfig
 from watcher import Incident
 from tools.registry import ToolRegistry, ToolResult
 from audit import AuditLog, AuditAction, ActionStatus, now_iso
+from prompts import load_system_prompt
+from skills import skill_registry, SkillResult
+from skills._runner import SkillRunner
 
 log = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are Claw8s, an autonomous Kubernetes operations agent.
-
-Your job is to investigate a Kubernetes incident, determine the root cause,
-and take the safest appropriate action to remediate it.
-
-Guidelines:
-- Start by gathering information (logs, pod status, events) before acting.
-- Only take mutating actions (restart, scale, delete) if you're confident they're needed.
-- State your confidence (0.0–1.0) and reasoning before each mutating action.
-- If unsure, prefer to alert the human rather than act.
-- Be concise. The final summary should be 3–5 sentences max.
-- Never touch kube-system resources autonomously.
-- After acting, verify the action had the desired effect.
-
-When you've finished your investigation and any remediation, provide a final
-plain-English summary of: what the issue was, what you did (or recommend), and current status.
-"""
+# System prompt is assembled from prompts/soul.md + prompts/guidelines.md
+# at startup. Edit those files and restart — no code change needed.
+SYSTEM_PROMPT = load_system_prompt()
 
 
 @dataclass
@@ -71,14 +60,35 @@ class Claw8sAgent:
         self.registry = tool_registry
         self.audit = audit
         self.approval_callback = approval_callback  # async callable
+        self.skill_runner = SkillRunner(tool_registry, api_key)
 
     async def run(self, incident: Incident) -> AgentResult:
-        log.info(f"Agent starting on incident {incident.id}: {incident.reason} / {incident.object_name}")
+        # ── Try skills first ──────────────────────────────────────────
+        skill_findings = ""
+        skill_def = skill_registry.get(incident.reason)
+        if skill_def:
+            log.info(f"Matching skill found for '{incident.reason}': {skill_def.get('name')}")
+            skill_res: SkillResult = await self.skill_runner.run(skill_def, incident)
+            
+            if not skill_res.inconclusive:
+                # Skill reached a definite conclusion (solved or needs human)
+                return AgentResult(
+                    incident_id=incident.id,
+                    summary=skill_res.summary or skill_res.human_message,
+                    actions_taken=skill_res.actions_taken,
+                    needs_human=skill_res.needs_human,
+                    human_message=skill_res.human_message
+                )
+            
+            # Skill was inconclusive, carry findings into the agent loop
+            skill_findings = skill_res.findings
+            actions_taken = skill_res.actions_taken
+            log.info(f"Skill '{skill_def.get('name')}' was inconclusive. Falling back to agent loop.")
 
         messages = [
             {
                 "role": "user",
-                "content": self._incident_context(incident),
+                "content": self._incident_context(incident, skill_findings),
             }
         ]
 
@@ -200,8 +210,8 @@ class Claw8sAgent:
             needs_human=True,
         )
 
-    def _incident_context(self, incident: Incident) -> str:
-        return (
+    def _incident_context(self, incident: Incident, skill_findings: str = "") -> str:
+        ctx = (
             f"## New Incident\n\n"
             f"**Incident ID:** {incident.id}\n"
             f"**Time:** {incident.timestamp}\n"
@@ -210,8 +220,17 @@ class Claw8sAgent:
             f"**Reason:** {incident.reason}\n"
             f"**Message:** {incident.message}\n"
             f"**Event count:** {incident.count}\n\n"
-            f"Please investigate and remediate this incident."
         )
+        
+        if skill_findings:
+            ctx += (
+                f"## Preliminary Skill Findings\n"
+                f"A pre-defined skill was run for this incident type but was inconclusive. "
+                f"Here is what was found:\n\n{skill_findings}\n\n"
+            )
+            
+        ctx += "Please investigate and remediate this incident."
+        return ctx
 
     def _extract_confidence(self, text: str) -> float:
         """Try to extract a confidence value from reasoning text (e.g. '0.9' or '90%')."""
