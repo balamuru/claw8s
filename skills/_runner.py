@@ -35,7 +35,7 @@ import logging
 import re
 from typing import Any
 
-import anthropic
+import llm
 
 from tools.registry import ToolRegistry, ToolResult
 from watcher import Incident
@@ -82,10 +82,12 @@ class SkillRunner:
         self,
         tools: ToolRegistry,
         api_key: str,
+        provider: str = "anthropic",
+        base_url: str = "",
         model: str = "claude-haiku-4-5",
     ):
         self._tools = tools
-        self._client = anthropic.AsyncAnthropic(api_key=api_key)
+        self._backend = llm.get_backend(provider, api_key, base_url)
         # A fast, cheap model is ideal for the narrow classification task.
         self._model = model
 
@@ -182,12 +184,15 @@ class SkillRunner:
         )
 
         try:
-            response = await self._client.messages.create(
+            # We use a fresh chat for classification to keep it simple and stateless
+            turn = await self._backend.chat(
+                system="You are an incident classifier.",
+                tools=[],  # no tools for classification
+                user_message=prompt,
                 model=self._model,
                 max_tokens=16,
-                messages=[{"role": "user", "content": prompt}],
             )
-            raw = response.content[0].text.strip().lower()
+            raw = (turn.text or "").strip().lower()
             # Match to the closest valid key
             for key in categories:
                 if key in raw:

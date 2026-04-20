@@ -37,7 +37,9 @@ class WatcherConfig:
 
 @dataclass
 class AgentConfig:
+    provider: str = "anthropic"  # "anthropic" or "openai"
     model: str = "claude-opus-4-5"
+    base_url: str = ""           # optional override (for Ollama, Groq, etc.)
     max_tokens: int = 4096
     # Confidence threshold (0.0-1.0) below which agent asks for human approval
     auto_remediate_threshold: float = 0.85
@@ -65,7 +67,7 @@ class Config:
     audit: AuditConfig = field(default_factory=AuditConfig)
 
     # Secrets — always from env
-    anthropic_api_key: str = ""
+    llm_api_key: str = ""
     telegram_bot_token: str = ""
     kubeconfig_path: str = ""  # empty = in-cluster or default ~/.kube/config
 
@@ -86,7 +88,9 @@ def load_config(config_path: str = "config.yaml") -> Config:
         cfg.watcher.debounce_seconds = w.get("debounce_seconds", cfg.watcher.debounce_seconds)
 
         a = raw.get("agent", {})
+        cfg.agent.provider = a.get("provider", cfg.agent.provider)
         cfg.agent.model = a.get("model", cfg.agent.model)
+        cfg.agent.base_url = a.get("base_url", cfg.agent.base_url)
         cfg.agent.max_tokens = a.get("max_tokens", cfg.agent.max_tokens)
         cfg.agent.auto_remediate_threshold = a.get("auto_remediate_threshold", cfg.agent.auto_remediate_threshold)
         cfg.agent.max_tool_calls = a.get("max_tool_calls", cfg.agent.max_tool_calls)
@@ -99,13 +103,13 @@ def load_config(config_path: str = "config.yaml") -> Config:
         cfg.audit.db_path = au.get("db_path", cfg.audit.db_path)
 
     # Secrets always from env (override YAML if set)
-    cfg.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    cfg.llm_api_key = os.environ.get("LLM_API_KEY") or os.environ.get("ANTHROPIC_API_KEY") or ""
     cfg.telegram_bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     cfg.kubeconfig_path = os.environ.get("KUBECONFIG", "")
 
     # Validate
-    if not cfg.anthropic_api_key:
-        raise ValueError("ANTHROPIC_API_KEY is required")
+    if not cfg.llm_api_key:
+        raise ValueError("LLM_API_KEY (or ANTHROPIC_API_KEY) is required")
     if cfg.telegram.enabled and not cfg.telegram_bot_token:
         raise ValueError("TELEGRAM_BOT_TOKEN is required when telegram.enabled=true")
 

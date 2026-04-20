@@ -16,10 +16,9 @@ Flow:
 import json
 import logging
 from dataclasses import dataclass
-from typing import Optional, AsyncIterator
-
 import anthropic
 
+import llm
 from config import AgentConfig
 from watcher import Incident
 from tools.registry import ToolRegistry, ToolResult
@@ -56,11 +55,11 @@ class Claw8sAgent:
         approval_callback=None,
     ):
         self.cfg = cfg
-        self.client = anthropic.AsyncAnthropic(api_key=api_key)
+        self.backend = llm.get_backend(cfg.provider, api_key, cfg.base_url)
         self.registry = tool_registry
         self.audit = audit
         self.approval_callback = approval_callback  # async callable
-        self.skill_runner = SkillRunner(tool_registry, api_key)
+        self.skill_runner = SkillRunner(tool_registry, api_key, cfg.provider, cfg.base_url)
 
     async def run(self, incident: Incident) -> AgentResult:
         # ── Try skills first ──────────────────────────────────────────
@@ -92,115 +91,88 @@ class Claw8sAgent:
             }
         ]
 
-        tools = self.registry.as_anthropic_tools()
+        tools = self.backend.get_tools(self.registry)
         actions_taken = []
         tool_call_count = 0
         needs_human = False
         human_message = None
 
+        # Start conversation
+        turn = await self.backend.chat(
+            system=SYSTEM_PROMPT,
+            tools=tools,
+            user_message=self._incident_context(incident, skill_findings),
+            model=self.cfg.model,
+            max_tokens=self.cfg.max_tokens,
+        )
+
         while True:
+            if turn.finished:
+                return AgentResult(
+                    incident_id=incident.id,
+                    summary=turn.text or "",
+                    actions_taken=actions_taken,
+                    needs_human=needs_human,
+                    human_message=human_message,
+                )
+
             if tool_call_count >= self.cfg.max_tool_calls:
                 log.warning(f"Reached max tool calls ({self.cfg.max_tool_calls}) for incident {incident.id}")
                 needs_human = True
                 human_message = f"Reached max tool call limit ({self.cfg.max_tool_calls}). Manual review needed."
                 break
 
-            response = await self.client.messages.create(
-                model=self.cfg.model,
-                max_tokens=self.cfg.max_tokens,
-                system=SYSTEM_PROMPT,
-                tools=tools,
-                messages=messages,
-            )
-
-            # Add assistant response to history
-            messages.append({"role": "assistant", "content": response.content})
-
-            if response.stop_reason == "end_turn":
-                # Final text response — we're done
-                final_text = next(
-                    (b.text for b in response.content if hasattr(b, "text")), ""
-                )
-                return AgentResult(
-                    incident_id=incident.id,
-                    summary=final_text,
-                    actions_taken=actions_taken,
-                    needs_human=needs_human,
-                    human_message=human_message,
-                )
-
-            if response.stop_reason != "tool_use":
-                break
-
             # Process tool calls
             tool_results = []
-            for block in response.content:
-                if block.type != "tool_use":
-                    continue
-
+            for tc in turn.tool_calls:
                 tool_call_count += 1
-                tool_name = block.name
-                tool_args = block.input
-                tool_spec = self.registry.get_spec(tool_name)
+                tool_spec = self.registry.get_spec(tc.name)
 
-                # Extract reasoning from the text block just before this tool call
-                reasoning = next(
-                    (b.text for b in response.content if hasattr(b, "text")), "No reasoning provided"
-                )
-
-                # Determine confidence — look for it in reasoning text or default
+                # Extract reasoning from the assistant's text (if any) or use a default
+                reasoning = turn.text or "No reasoning provided"
                 confidence = self._extract_confidence(reasoning)
 
                 # Check if this requires human approval
                 approved = True
                 if tool_spec and tool_spec.is_destructive:
                     if confidence < self.cfg.auto_remediate_threshold:
-                        # Ask human
                         if self.approval_callback:
                             approved = await self.approval_callback(
-                                incident.id, tool_name, tool_args, reasoning, confidence
+                                incident.id, tc.name, tc.args, reasoning, confidence
                             )
                         else:
-                            # No callback — skip destructive action, flag for human
                             approved = False
                             needs_human = True
-                            human_message = f"Action `{tool_name}` on `{incident.object_name}` needs approval (confidence={confidence:.0%}).\n\nReasoning: {reasoning}"
+                            human_message = f"Action `{tc.name}` on `{incident.object_name}` needs approval (confidence={confidence:.0%}).\n\nReasoning: {reasoning}"
 
-                # Log the proposed action
+                # Log and execute
                 await self.audit.log_action(AuditAction(
                     incident_id=incident.id,
                     timestamp=now_iso(),
-                    tool_name=tool_name,
-                    tool_args=json.dumps(tool_args),
+                    tool_name=tc.name,
+                    tool_args=json.dumps(tc.args),
                     reasoning=reasoning,
                     confidence=confidence,
                     status=ActionStatus.APPROVED if approved else ActionStatus.REJECTED,
                 ))
 
                 if approved:
-                    result: ToolResult = await self.registry.call(tool_name, tool_args)
+                    result: ToolResult = await self.registry.call(tc.name, tc.args)
                     status = ActionStatus.EXECUTED if result.success else ActionStatus.FAILED
-                    await self.audit.update_action_result(incident.id, tool_name, status, result.output)
+                    await self.audit.update_action_result(incident.id, tc.name, status, result.output)
 
                     actions_taken.append({
-                        "tool": tool_name,
-                        "args": tool_args,
+                        "tool": tc.name,
+                        "args": tc.args,
                         "success": result.success,
-                        "output": result.output[:500],  # truncate for summary
+                        "output": result.output[:500],
                     })
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result.output,
-                    })
+                    tool_results.append((tc.id, result.output))
                 else:
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": f"Action rejected (requires human approval). Confidence was {confidence:.0%}.",
-                    })
+                    tool_results.append((tc.id, f"Action rejected (requires human approval). Confidence was {confidence:.0%}. See reasoning: {reasoning}"))
 
-            messages.append({"role": "user", "content": tool_results})
+            # Feed results back and get next turn
+            turn = await self.backend.continue_with_results(tool_results)
 
         # Fallback if loop exits unexpectedly
         return AgentResult(

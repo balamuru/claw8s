@@ -3,7 +3,7 @@
 </p>
 <h1 align="center">claw8s</h1>
 <p align="center">
-  Autonomous Kubernetes monitoring and remediation agent powered by Claude.
+  Autonomous Kubernetes monitoring and remediation agent powered by LLMs (Claude, GPT, Gemini, Ollama).
 </p>
 
 <p align="center">
@@ -30,7 +30,7 @@ K8s Watch API
      │   └── oom_killed.yaml
      │
      ▼ (if inconclusive)
- Claw8sAgent (Claude open-ended loop)
+ Claw8sAgent (LLM-agnostic tool-calling loop)
      │   ├── get_pod_logs
      │   ├── describe_pod
      │   ├── list_pods
@@ -59,7 +59,9 @@ K8s Watch API
 | `watcher.watch_all_namespaces` | `true` | Watch all namespaces |
 | `watcher.debounce_seconds` | `120` | Cooldown between same-incident triggers |
 | `watcher.trigger_reasons` | (list) | K8s event reasons that trigger the agent |
-| `agent.model` | `claude-opus-4-5` | Anthropic model to use |
+| `agent.provider` | `anthropic` | LLM provider: `anthropic` or `openai` |
+| `agent.model` | `claude-opus-4-5` | LLM model name |
+| `agent.base_url` | `""` | Optional: custom API endpoint (Ollama, Groq, etc.) |
 | `agent.auto_remediate_threshold` | `0.85` | Confidence below this → ask for approval |
 | `agent.max_tool_calls` | `10` | Max tool calls per incident (safety cap) |
 | `telegram.allowed_user_ids` | `[]` | Telegram user IDs allowed to control the bot |
@@ -108,6 +110,63 @@ python main.py --config config.yaml
 2. `/newbot` → follow prompts → copy the token
 3. Message [@userinfobot](https://t.me/userinfobot) to find your user ID
 4. Put both in your `.env` and `config.yaml`
+
+---
+
+## LLM Providers
+
+Claw8s is provider-agnostic. All secrets (API keys) should be placed in your `.env` file as `LLM_API_KEY`.
+
+### Anthropic (Claude)
+Recommended for the best reasoning performance.
+```yaml
+agent:
+  provider: anthropic
+  model: claude-3-5-sonnet-20240620
+```
+
+### OpenAI
+```yaml
+agent:
+  provider: openai
+  model: gpt-4o
+```
+
+### Ollama (Local)
+Run models locally on your machine.
+```yaml
+agent:
+  provider: openai
+  model: llama3.1
+  base_url: "http://localhost:11434/v1"
+```
+
+### Groq
+Ultra-fast inference for open-source models.
+```yaml
+agent:
+  provider: openai
+  model: llama-3.1-70b-versatile
+  base_url: "https://api.groq.com/openai/v1"
+```
+
+### OpenRouter
+Access any model through a single unified API.
+```yaml
+agent:
+  provider: openai
+  model: anthropic/claude-3.5-sonnet
+  base_url: "https://openrouter.ai/api/v1"
+```
+
+### Google Gemini
+Using the OpenAI-compatible endpoint.
+```yaml
+agent:
+  provider: openai
+  model: gemini-1.5-pro
+  base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+```
 
 ---
 
@@ -185,7 +244,7 @@ async def my_tool(namespace: str) -> ToolResult:
 
 ```
 claw8s/
-├── agent.py           ← Claude agentic loop
+├── agent.py           ← LLM-agnostic agentic loop
 ├── audit.py           ← SQLite audit log (async)
 ├── config.py          ← Config loading (env + yaml)
 ├── main.py            ← Entry point + wiring

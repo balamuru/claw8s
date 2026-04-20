@@ -90,7 +90,7 @@ async def main(config_path: str = "config.yaml"):
     # ── Agent ───────────────────────────────────────────────────────
     agent = Claw8sAgent(
         cfg=cfg.agent,
-        api_key=cfg.anthropic_api_key,
+        api_key=cfg.llm_api_key,
         tool_registry=tool_registry,
         audit=audit,
         approval_callback=approval_callback,
