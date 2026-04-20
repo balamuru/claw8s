@@ -52,44 +52,6 @@ K8s Watch API
 
 ---
 
-## Quick Start
-
-### Option A: Using uv (Recommended)
-```bash
-# Install uv: https://docs.astral.sh/uv/
-cd claw8s
-uv venv && source .venv/bin/activate
-uv pip install -e .
-```
-
-### Option B: Using pip
-```bash
-cd claw8s
-python -m venv .venv && source .venv/bin/activate
-pip install -e .
-```
-
-# 2. Set up secrets
-cp .env.example .env
-# Edit .env with your ANTHROPIC_API_KEY and TELEGRAM_BOT_TOKEN
-
-# 3. Configure
-cp config.yaml.example config.yaml
-# Edit config.yaml — at minimum set your Telegram user ID
-
-# 4. Run
-python main.py --config config.yaml
-# or if installed: claw8s --config config.yaml
-
-
-### Getting a Telegram Bot Token
-1. Message [@BotFather](https://t.me/BotFather) on Telegram
-2. `/newbot` → follow prompts → copy the token
-3. Message [@userinfobot](https://t.me/userinfobot) to find your user ID
-4. Put both in your `.env` and `config.yaml`
-
----
-
 ## Configuration
 
 | Key | Default | Description |
@@ -101,6 +63,51 @@ python main.py --config config.yaml
 | `agent.auto_remediate_threshold` | `0.85` | Confidence below this → ask for approval |
 | `agent.max_tool_calls` | `10` | Max tool calls per incident (safety cap) |
 | `telegram.allowed_user_ids` | `[]` | Telegram user IDs allowed to control the bot |
+
+---
+
+## Quick Start
+
+### 1. Install Dependencies
+
+**Option A: Using uv (Recommended)**
+```bash
+# Install uv: https://docs.astral.sh/uv/
+cd claw8s
+uv venv && source .venv/bin/activate
+uv pip install -e .
+```
+
+**Option B: Using pip**
+```bash
+cd claw8s
+python -m venv .venv && source .venv/bin/activate
+pip install -e .
+```
+
+### 2. Set up Secrets
+```bash
+cp .env.example .env
+# Edit .env with your ANTHROPIC_API_KEY and TELEGRAM_BOT_TOKEN
+```
+
+### 3. Configure
+```bash
+cp config.yaml.example config.yaml
+# Edit config.yaml — at minimum set your Telegram user ID
+```
+
+### 4. Run
+```bash
+python main.py --config config.yaml
+# or if installed: claw8s --config config.yaml
+```
+
+### Getting a Telegram Bot Token
+1. Message [@BotFather](https://t.me/BotFather) on Telegram
+2. `/newbot` → follow prompts → copy the token
+3. Message [@userinfobot](https://t.me/userinfobot) to find your user ID
+4. Put both in your `.env` and `config.yaml`
 
 ---
 
