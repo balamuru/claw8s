@@ -108,7 +108,7 @@ python main.py --config config.yaml
 ### Getting a Telegram Bot Token
 1. Message [@BotFather](https://t.me/BotFather) on Telegram
 2. `/newbot` → follow prompts → copy the token
-3. Message [@userinfobot](https://t.me/userinfobot) to find your user ID
+3. Message [@userinfobot](https://t.me/userinfobot) (just click "Start") to find your user ID. It will reply with your numeric `Id`.
 4. Put both in your `.env` and `config.yaml`
 
 ---
