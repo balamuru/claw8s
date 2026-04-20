@@ -1,10 +1,13 @@
 <p align="center">
-  <img src="assets/banner.png" alt="claw8s" width="480"/>
+  <img src="assets/banner.png" alt="claw8s" width="360"/>
 </p>
 
 <p align="center">
-  Autonomous Kubernetes monitoring and remediation agent powered by Claude.<br/>
-  <strong>Detects</strong> K8s incidents → <strong>diagnoses</strong> root cause → <strong>acts</strong> (with your approval) → <strong>notifies</strong> you via Telegram.
+  Autonomous Kubernetes monitoring and remediation agent powered by Claude.
+</p>
+
+<p align="center">
+  <b>Detects</b> K8s incidents &rarr; <b>diagnoses</b> root cause &rarr; <b>acts</b> (with your approval) &rarr; <b>notifies</b> you via Telegram.
 </p>
 
 ---
