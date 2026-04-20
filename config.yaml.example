@@ -1,0 +1,31 @@
+watcher:
+  watch_all_namespaces: true
+  debounce_seconds: 120          # min seconds between re-triggering same object+reason
+  trigger_reasons:
+    - BackOff
+    - CrashLoopBackOff
+    - OOMKilling
+    - Failed
+    - FailedScheduling
+    - Unhealthy
+    - NodeNotReady
+    - EvictionThresholdMet
+    - FreeDiskSpaceFailed
+
+agent:
+  model: claude-opus-4-5          # or claude-haiku-4-5 for faster/cheaper
+  max_tokens: 4096
+  # Actions with confidence below this % will be sent to Telegram for approval
+  auto_remediate_threshold: 0.85
+  max_tool_calls: 10              # safety cap per incident
+
+telegram:
+  enabled: true
+  # Telegram user IDs allowed to interact with the bot.
+  # Find your ID by messaging @userinfobot on Telegram.
+  # Leave empty [] to allow anyone (not recommended).
+  allowed_user_ids:
+    - 123456789   # replace with your Telegram user ID
+
+audit:
+  db_path: kubeclaw_audit.db

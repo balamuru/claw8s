@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "claw8s"
+version = "0.1.0"
+description = "Autonomous Kubernetes monitoring and remediation agent"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.28",
+    "kubernetes>=29.0",
+    "python-telegram-bot>=21.0",
+    "aiosqlite>=0.20",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+claw8s = "main:run"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["bot*", "tools*"]
+
+[tool.setuptools.py-modules]
+# Flat modules at root
+modules = ["agent", "audit", "config", "main", "watcher"]
