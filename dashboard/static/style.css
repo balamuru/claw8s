@@ -38,6 +38,18 @@ header {
     margin-bottom: 3rem;
 }
 
+.nav-left {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.nav-logo {
+    height: 32px;
+    width: 32px;
+    object-fit: contain;
+}
+
 .logo {
     display: flex;
     align-items: center;
@@ -48,6 +60,9 @@ header {
     font-size: 1.5rem;
     font-weight: 800;
     letter-spacing: -0.5px;
+    background: linear-gradient(135deg, #fff 0%, #a5b4fc 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
 
 .badge {
@@ -174,14 +189,15 @@ header {
     height: 100px;
     display: flex;
     align-items: flex-end;
-    gap: 6px;
+    justify-content: flex-end;
+    gap: 4px;
     margin-top: 1rem;
 }
 
 .hist-bar {
-    flex: 1;
+    width: 12px;
+    flex-shrink: 0;
     background: var(--accent-blue);
-    min-width: 4px;
     border-radius: 4px 4px 0 0;
     transition: height 0.3s ease;
     position: relative;

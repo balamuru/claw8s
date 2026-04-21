@@ -22,15 +22,24 @@ graph TD
 
 ### Tier 1: Skills (Runbooks)
 Skills are the first line of defense. They are deterministic procedures defined in YAML.
-*   **Goal**: Solve common, well-understood problems (e.g., OOMKills, known probe failures) instantly without using expensive LLM reasoning.
-*   **Remediation**: Skills can now take direct action (e.g., patching a deployment) and recycle pods.
+*   **Goal**: Solve common, well-understood problems instantly without using expensive LLM reasoning.
+*   **Remediation**: Skills can now take direct action and recycle pods.
 
 ### Tier 2: The Soul (Agentic Reasoning)
 If a Skill is "Inconclusive," the incident is escalated to the Soul.
 *   **Goal**: Solve novel or complex problems using a multi-turn tool-calling loop.
-*   **Memory Awareness**: The Soul queries the Audit Log for the last 2 hours of actions taken on the target object. It will never repeat a failing strategy.
+*   **Memory Awareness**: The Soul queries the Audit Log for the last 2 hours of actions. It will never repeat a failing strategy.
+*   **Safety Governors**: All tools are protected by strict timeouts (e.g., 10s log retrieval limit) to prevent the agent from hanging on slow API responses.
 
-## 3. Data Persistence & Analytics
+## 3. Resilience & Anti-Flooding
+
+### Controller-Aware Debouncing
+Claw8s prevents "Incident Storms" by grouping pod-level failures at the parent level (Deployment or ReplicaSet). If 100 pods fail for the same reason, the agent receives a single, actionable incident for the entire group.
+
+### Proactive Condition Scanning
+The system doesn't just wait for events. It sweeps the cluster every 30 seconds, looking specifically at **Pod Conditions** (e.g., `PodScheduled=False`) to catch "zombie" pods that are stuck before their containers even start.
+
+## 4. Data Persistence & Analytics
 
 ### Audit Log (SQLite)
 Every thought, event, and tool call is recorded.
@@ -44,9 +53,9 @@ A FastAPI server integrated directly into the main process.
 *   **Frequency Analytics**: A histogram showing incident spikes over time (15m, 1h, 1d buckets).
 *   **Direct Control**: Includes a "Clear History" feature for cluster operators.
 
-## 4. Safety Controls
+## 5. Safety Controls
 
 *   **Namespace Protection**: Mutating tools refuse to touch `kube-system` unless explicitly allowed.
 *   **Threshold-Based Autonomy**: Actions with confidence < 85% require human approval via Telegram.
 *   **Resource Capping**: Scaling is hardware-limited (e.g., max 20 replicas) to prevent runaway costs.
-*   **Tool Aliasing**: Multi-parameter aliasing ensures the agent doesn't fail due to minor nomenclature errors (e.g., `pod_name` vs `name`).
+*   **Tool Aliasing**: Multi-parameter aliasing ensures the agent doesn't fail due to minor nomenclature errors.

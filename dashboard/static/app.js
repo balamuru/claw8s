@@ -43,7 +43,7 @@ async function fetchStats() {
 
 function renderHistogram(data) {
     if (!data.length) return;
-    const max = Math.max(...data.map(d => d.count));
+    const max = Math.max(...data.map(d => d.count)) || 1;
     histogramContainer.innerHTML = '';
     
     // Show last 24 buckets
@@ -61,7 +61,7 @@ function renderHistogram(data) {
 function renderIncidents(incidents) {
     container.innerHTML = '';
     if (incidents.length === 0) {
-        container.innerHTML = '<div class="empty-state">No incidents found. Cluster is healthy! 🦅✅</div>';
+        container.innerHTML = '<div class="empty-state">No incidents found. Cluster is healthy! 🛡️✅</div>';
         return;
     }
     incidents.forEach(inc => {

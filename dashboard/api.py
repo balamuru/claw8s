@@ -36,8 +36,9 @@ async def clear_incidents():
     await audit.clear_all_records()
     return {"status": "ok"}
 
-# Serve static files
+# Serve static files and assets
 app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
+app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 
 @app.get("/")
 async def read_index():
