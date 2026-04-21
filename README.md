@@ -34,8 +34,10 @@ K8s Watch API
      │   ├── get_pod_logs
      │   ├── describe_pod
      │   ├── list_pods
+     │   ├── get_deployment
      │   ├── get_deployment_status
      │   ├── get_node_status
+     │   ├── patch_deployment    ⚠️
      │   ├── restart_deployment  ⚠️
      │   ├── scale_deployment    ⚠️
      │   ├── delete_pod          ⚠️
