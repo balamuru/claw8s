@@ -176,10 +176,11 @@ class OpenAIBackend(LLMBackend):
 
     async def continue_with_results(self, tool_results) -> LLMTurn:
         # OpenAI: each tool result is a separate message with role "tool"
-        for tool_call_id, content in tool_results:
+        for tool_call_id, name, content in tool_results:
             self._messages.append({
                 "role": "tool",
                 "tool_call_id": tool_call_id,
+                "name": name,
                 "content": content,
             })
         return await self._call()

@@ -138,14 +138,22 @@ class Claw8sAgent:
                 tool_call_count += 1
                 tool_spec = self.registry.get_spec(tc.name)
 
-                # Extract reasoning from the assistant's text (if any) or use a default
+                # Extract reasoning and confidence
                 reasoning = turn.text or "No reasoning provided"
                 confidence = self._extract_confidence(reasoning)
 
-                # Check if this requires human approval
-                approved = True
-                if tool_spec and tool_spec.is_destructive:
-                    if confidence < self.cfg.auto_remediate_threshold:
+                # Safety: Deny by Default for destructive/unknown tools
+                approved = False
+                if tool_spec and not tool_spec.is_destructive:
+                    # Read-only tools are always approved
+                    approved = True
+                else:
+                    # Mutating or unknown tools require threshold check
+                    if confidence >= self.cfg.auto_remediate_threshold:
+                        approved = True
+                        log.info(f"Auto-approving {tc.name} (confidence {confidence:.2f} >= threshold {self.cfg.auto_remediate_threshold})")
+                    else:
+                        log.info(f"Action {tc.name} requires approval (confidence {confidence:.2f} < threshold {self.cfg.auto_remediate_threshold})")
                         if self.approval_callback:
                             approved = await self.approval_callback(
                                 incident.id, tc.name, tc.args, reasoning, confidence
@@ -153,7 +161,7 @@ class Claw8sAgent:
                         else:
                             approved = False
                             needs_human = True
-                            human_message = f"Action `{tc.name}` on `{incident.object_name}` needs approval (confidence={confidence:.0%}).\n\nReasoning: {reasoning}"
+                            human_message = f"Action `{tc.name}` needs approval (confidence={confidence:.0%})."
 
                 # Log the action with tokens
                 await self.audit.log_action(AuditAction(
@@ -180,9 +188,9 @@ class Claw8sAgent:
                         "success": result.success,
                         "output": result.output[:500],
                     })
-                    tool_results.append((tc.id, result.output))
+                    tool_results.append((tc.id, tc.name, result.output))
                 else:
-                    tool_results.append((tc.id, f"Action rejected (requires human approval). Confidence was {confidence:.0%}. See reasoning: {reasoning}"))
+                    tool_results.append((tc.id, tc.name, f"Action rejected (requires human approval). Confidence was {confidence:.0%}. See reasoning: {reasoning}"))
 
             # Feed results back and get next turn
             turn = await self.backend.continue_with_results(tool_results)
@@ -229,13 +237,13 @@ class Claw8sAgent:
     def _extract_confidence(self, text: str) -> float:
         """Try to extract a confidence value from reasoning text (e.g. '0.9' or '90%')."""
         import re
-        # Look for patterns like "confidence: 0.85" or "confidence: 85%"
-        # Refined regex to avoid capturing trailing punctuation like "0.70."
-        m = re.search(r"confidence[:\s]+([0-9]*\.?[0-9]+)%?", text, re.IGNORECASE)
+        # Look for patterns like "confidence: 0.85", "confidence: 85%", or "confidence is 0.9"
+        # The [^\d]* allows for conversational text between "confidence" and the number
+        m = re.search(r"confidence[^\d]*([0-9]*\.?[0-9]+)%?", text, re.IGNORECASE)
         if m:
             try:
                 val = float(m.group(1))
                 return val / 100 if val > 1 else val
             except ValueError:
                 pass
-        return 0.75  # default if not found
+        return 0.0  # Safe default: if we can't parse it, we don't trust it.

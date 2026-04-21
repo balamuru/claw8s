@@ -21,6 +21,7 @@ Approval flow:
 
 import asyncio
 import logging
+from datetime import datetime
 from typing import Optional, Callable
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -66,10 +67,14 @@ class TelegramBot:
 
     async def start(self):
         """Start polling in the background."""
+        print("[BOT] Initializing Telegram application...")
         await self._app.initialize()
+        print("[BOT] Starting Telegram application...")
         await self._app.start()
+        print("[BOT] Starting Telegram polling...")
         await self._app.updater.start_polling(drop_pending_updates=True)
         log.info("Telegram bot started")
+        print("[BOT] Telegram bot is fully online and listening.")
 
     async def stop(self):
         await self._app.updater.stop()
@@ -84,7 +89,7 @@ class TelegramBot:
         await self._app.bot.send_message(
             chat_id=self._primary_chat_id,
             text=text,
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
 
     async def request_approval(
@@ -123,6 +128,7 @@ class TelegramBot:
         keyboard = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("✅ Approve", callback_data=f"approve:{callback_id}"),
+                InlineKeyboardButton("🛡️ Reconfirm", callback_data=f"reconfirm:{callback_id}"),
                 InlineKeyboardButton("❌ Reject", callback_data=f"reject:{callback_id}"),
             ]
         ])
@@ -156,23 +162,23 @@ class TelegramBot:
             return
         self._primary_chat_id = update.effective_chat.id
         await update.message.reply_text(
-            f"🦅 *Claw8s online!*\n\n"
+            f"🦅 <b>Claw8s online!</b>\n\n"
             f"Hi {user.first_name}. I'm monitoring your cluster.\n"
-            f"Chat ID `{self._primary_chat_id}` registered as primary alert target.\n\n"
+            f"Chat ID <code>{self._primary_chat_id}</code> registered as primary alert target.\n\n"
             f"Type /help for available commands.",
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
 
     async def _cmd_help(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if not self._is_authorized(update.effective_user.id):
             return
         await update.message.reply_text(
-            "*Claw8s Commands*\n\n"
+            "<b>Claw8s Commands</b>\n\n"
             "/status — cluster health overview\n"
             "/history — last 10 incidents\n"
             "/start — register this chat for alerts\n"
             "/help — this message",
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
 
     async def _cmd_status(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -182,7 +188,7 @@ class TelegramBot:
             status = await self.cluster_status_fn()
         else:
             status = "No status function configured."
-        await update.message.reply_text(f"📊 *Cluster Status*\n\n{status}", parse_mode="Markdown")
+        await update.message.reply_text(f"📊 <b>Cluster Status</b>\n\n{status}", parse_mode="HTML")
 
     async def _cmd_history(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if not self._is_authorized(update.effective_user.id):
@@ -191,30 +197,53 @@ class TelegramBot:
         if not incidents:
             await update.message.reply_text("No incidents recorded yet.")
             return
-        lines = ["📋 *Recent Incidents*\n"]
+        lines = ["📋 <b>Recent Incidents</b>\n"]
         for i in incidents:
             lines.append(
-                f"• `{i['incident_id'][:8]}` | {i['timestamp'][:16]} | "
-                f"{i['object_kind']}/{i['object_name']} | *{i['reason']}*"
+                f"• <code>{i['incident_id'][:8]}</code> | {i['timestamp'][:16]} | "
+                f"{i['object_kind']}/{i['object_name']} | <b>{i['reason']}</b>"
             )
-        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
     async def _handle_approval(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
+        user = query.from_user
+        print(f"[BOT] Button clicked by user: {user.first_name} (ID: {user.id})")
         await query.answer()
 
-        if not self._is_authorized(query.from_user.id):
+        if not self._is_authorized(user.id):
+            print(f"[BOT] Unauthorized click from {user.id}. Access denied.")
             await query.edit_message_text("⛔ Not authorized.")
             return
 
-        data = query.data  # "approve:incident_id:tool_name" or "reject:..."
-        parts = data.split(":", 1)
-        if len(parts) != 2:
+        data = query.data  # "approve:INCIDENT_ID:TOOL_NAME"
+        print(f"[BOT] Action received: {data}")
+        if ":" not in data:
+            print(f"[BOT] Malformed callback data: {data}")
+            return
+            
+        action, callback_id = data.split(":", 1)
+        print(f"[BOT] Parsed Action: {action}, ID: {callback_id}")
+        
+        # For reconfirm, we don't pop the future yet
+        if action == "reconfirm":
+            pending = self._pending.get(callback_id)
+            if not pending:
+                await query.edit_message_text("⏰ This request has expired.")
+                return
+            
+            # Update UI to show we are checking
+            timestamp = datetime.now().strftime('%H:%M:%S')
+            # Use HTML to avoid parse errors with underscores/asterisks
+            await query.edit_message_text(
+                f"{query.message.text_html}\n\n🔍 <b>Reconfirmed at {timestamp}:</b> Issue persists. Please approve or reject.",
+                parse_mode="HTML",
+                reply_markup=query.message.reply_markup
+            )
             return
 
-        action, callback_id = parts
+        # For approve/reject, we pop and resolve
         future = self._pending.pop(callback_id, None)
-
         if future is None:
             await query.edit_message_text("⏰ This approval request has expired.")
             return
@@ -223,7 +252,9 @@ class TelegramBot:
         future.set_result(approved)
 
         emoji = "✅" if approved else "❌"
+        status = "Approved" if approved else "Rejected"
+        # We use .text_html to preserve the original formatting
         await query.edit_message_text(
-            f"{emoji} {'Approved' if approved else 'Rejected'} by {query.from_user.first_name}",
-            parse_mode="Markdown",
+            f"{query.message.text_html}\n\n{emoji} <b>{status}</b> by {query.from_user.first_name}",
+            parse_mode="HTML",
         )

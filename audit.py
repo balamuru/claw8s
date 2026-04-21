@@ -56,8 +56,10 @@ class AuditLog:
         self._db: Optional[aiosqlite.Connection] = None
 
     async def connect(self):
-        self._db = await aiosqlite.connect(self.db_path)
+        # Increase timeout to 20s to prevent deadlocks during high dashboard activity
+        self._db = await aiosqlite.connect(self.db_path, timeout=20.0)
         await self._db.execute("PRAGMA journal_mode=WAL")
+        await self._db.execute("PRAGMA synchronous=NORMAL")
         await self._create_tables()
 
     async def close(self):
