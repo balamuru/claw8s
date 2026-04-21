@@ -98,6 +98,8 @@ class ToolRegistry:
     async def call(self, name: str, args: dict, source: str = "agent") -> ToolResult:
         spec = self._tools.get(name)
         if not spec:
+            available = ", ".join(sorted(self._tools.keys()))
+            log.warning(f"Tool '{name}' not found. Available tools: {available}")
             return ToolResult(success=False, output=f"Unknown tool: {name}")
         try:
             log.info(f"[{source}] Calling tool '{name}' with args: {args}")
@@ -106,3 +108,6 @@ class ToolRegistry:
         except Exception as e:
             log.error(f"Tool '{name}' raised: {e}", exc_info=True)
             return ToolResult(success=False, output=f"Tool error: {e}")
+
+# Global registry instance used across the app
+registry = ToolRegistry()

@@ -8,6 +8,7 @@ Telegram bot serving two purposes:
 Commands:
   /start    - welcome + confirm you're authorized
   /status   - current cluster summary (nodes, unhealthy pods)
+  /refresh  - alias for /status (forces a live scan)
   /history  - last 10 incidents from audit log
   /approve  - approve a pending action (used in reply to approval request)
   /reject   - reject a pending action
@@ -45,18 +46,21 @@ class TelegramBot:
         token: str,
         audit: AuditLog,
         cluster_status_fn: Optional[Callable] = None,  # async fn → str
+        reconfirm_callback: Optional[Callable] = None, # async fn(id, name, args) → str
     ):
         self.cfg = cfg
         self.audit = audit
         self.cluster_status_fn = cluster_status_fn
+        self.reconfirm_callback = reconfirm_callback
 
         self._app = Application.builder().token(token).build()
-        self._pending: dict[str, asyncio.Future] = {}  # callback_id → Future[bool]
+        self._pending: dict[str, dict] = {}  # callback_id → {future, tool_name, tool_args}
 
         # Register handlers
         self._app.add_handler(CommandHandler("start", self._cmd_start))
         self._app.add_handler(CommandHandler("help", self._cmd_help))
         self._app.add_handler(CommandHandler("status", self._cmd_status))
+        self._app.add_handler(CommandHandler("refresh", self._cmd_status))
         self._app.add_handler(CommandHandler("history", self._cmd_history))
         self._app.add_handler(CallbackQueryHandler(self._handle_approval))
 
@@ -110,7 +114,11 @@ class TelegramBot:
 
         callback_id = f"{incident_id}:{tool_name}"
         future: asyncio.Future = asyncio.get_event_loop().create_future()
-        self._pending[callback_id] = future
+        self._pending[callback_id] = {
+            "future": future,
+            "tool_name": tool_name,
+            "tool_args": tool_args
+        }
 
         args_str = "\n".join(f"  {k}: {v}" for k, v in tool_args.items())
 
@@ -223,7 +231,8 @@ class TelegramBot:
             return
             
         action, callback_id = data.split(":", 1)
-        print(f"[BOT] Parsed Action: {action}, ID: {callback_id}")
+        incident_id = callback_id.split(":")[0] if ":" in callback_id else callback_id
+        print(f"[BOT] Parsed Action: {action}, Incident: {incident_id}, ToolID: {callback_id}")
         
         # For reconfirm, we don't pop the future yet
         if action == "reconfirm":
@@ -235,21 +244,44 @@ class TelegramBot:
             # Update UI to show we are checking
             timestamp = datetime.now().strftime('%H:%M:%S')
             # Use HTML to avoid parse errors with underscores/asterisks
+            pending = self._pending.get(callback_id)
+            if not pending:
+                await query.edit_message_text("⏰ This request has expired.")
+                return
+
+            result = "Issue persists. Please approve or reject."
+            if self.reconfirm_callback:
+                result = await self.reconfirm_callback(
+                    incident_id, 
+                    pending["tool_name"], 
+                    pending["tool_args"]
+                )
+
+            # If resolved, we auto-resolve the future
+            if "resolved" in result.lower() or "fixed" in result.lower():
+                await query.edit_message_text(
+                    f"{query.message.text_html}\n\n✅ <b>Reconfirmed at {timestamp}:</b> {result}",
+                    parse_mode="HTML"
+                )
+                pending["future"].set_result(False) # Reject the automated action since it's fixed
+                self._pending.pop(callback_id, None)
+                return
+
             await query.edit_message_text(
-                f"{query.message.text_html}\n\n🔍 <b>Reconfirmed at {timestamp}:</b> Issue persists. Please approve or reject.",
+                f"{query.message.text_html}\n\n🔍 <b>Reconfirmed at {timestamp}:</b> {result}",
                 parse_mode="HTML",
                 reply_markup=query.message.reply_markup
             )
             return
 
         # For approve/reject, we pop and resolve
-        future = self._pending.pop(callback_id, None)
-        if future is None:
+        pending = self._pending.pop(callback_id, None)
+        if pending is None:
             await query.edit_message_text("⏰ This approval request has expired.")
             return
 
         approved = action == "approve"
-        future.set_result(approved)
+        pending["future"].set_result(approved)
 
         emoji = "✅" if approved else "❌"
         status = "Approved" if approved else "Rejected"

@@ -19,12 +19,9 @@ from typing import Optional
 from kubernetes import client as k8s_client, config as k8s_config
 from kubernetes.dynamic import DynamicClient
 
-from .registry import ToolRegistry, ToolResult
+from .registry import ToolRegistry, ToolResult, registry
 
 log = logging.getLogger(__name__)
-
-# Module-level registry — imported and used by agent.py
-registry = ToolRegistry()
 
 # ──────────────────────────────────────────────
 # READ-ONLY TOOLS

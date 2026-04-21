@@ -54,12 +54,15 @@ class Claw8sAgent:
         # Approval callback: called with (incident_id, tool_name, args, reasoning)
         # Should return True if approved, False if rejected.
         approval_callback=None,
+        # Status callback: called with (incident_id, message) to send updates
+        status_callback=None,
     ):
         self.cfg = cfg
         self.backend = llm.get_backend(cfg.provider, api_key, cfg.base_url)
         self.registry = tool_registry
         self.audit = audit
         self.approval_callback = approval_callback  # async callable
+        self.status_callback = status_callback
         self.skill_runner = SkillRunner(tool_registry, api_key, audit, cfg.provider, cfg.base_url, cfg.model)
 
     async def run(self, incident: Incident) -> AgentResult:
@@ -135,6 +138,10 @@ class Claw8sAgent:
             # Process tool calls
             tool_results = []
             for tc in turn.tool_calls:
+                if not tc.name:
+                    log.error(f"LLM returned a tool call with NO NAME (id: {tc.id})! This will cause an API crash.")
+                    continue
+                
                 tool_call_count += 1
                 tool_spec = self.registry.get_spec(tc.name)
 
@@ -178,7 +185,13 @@ class Claw8sAgent:
                 ))
 
                 if approved:
-                    result: ToolResult = await self.registry.call(tc.name, tc.args, source="soul")
+                    if tc.name == "send_status_update" and self.status_callback:
+                        msg = tc.args.get("message", "No message provided.")
+                        await self.status_callback(incident.id, msg)
+                        result = ToolResult(success=True, output=f"Status update sent: {msg}")
+                    else:
+                        result: ToolResult = await self.registry.call(tc.name, tc.args, source="soul")
+                    
                     status = ActionStatus.EXECUTED if result.success else ActionStatus.FAILED
                     await self.audit.update_action_result(incident.id, tc.name, status, result.output)
 

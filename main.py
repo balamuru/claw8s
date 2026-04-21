@@ -27,7 +27,9 @@ from config import load_config
 from audit import AuditLog, AuditEvent, now_iso
 from watcher import KubernetesWatcher, Incident
 from agent import Claw8sAgent, AgentResult
-from tools.kubectl import registry as tool_registry
+from tools.registry import ToolResult, registry as tool_registry
+import tools.kubectl  # Trigger registration of k8s tools
+from tools.communication import send_status_update # ensure it's registered
 from bot.telegram import TelegramBot
 
 logging.basicConfig(
@@ -40,26 +42,76 @@ log = logging.getLogger("claw8s")
 
 async def cluster_status_summary() -> str:
     """Quick cluster health snapshot for the /status command."""
-    from kubernetes import client as k8s_client
+    from kubernetes import client as k8s_client, config as k8s_config
     try:
+        # Get active context name
+        try:
+            _, active_context = k8s_config.list_kube_config_contexts()
+            cluster_name = active_context.get('context', {}).get('cluster', 'unknown')
+        except:
+            cluster_name = "default"
+
         v1 = k8s_client.CoreV1Api()
+        api_host = v1.api_client.configuration.host
+        
         nodes = await asyncio.to_thread(v1.list_node)
         pods = await asyncio.to_thread(v1.list_pod_for_all_namespaces)
 
         total_nodes = len(nodes.items)
-        ready_nodes = sum(
-            1 for n in nodes.items
-            if any(c.type == "Ready" and c.status == "True" for c in (n.status.conditions or []))
-        )
+        ready_nodes = []
+        not_ready_nodes = []
 
-        total_pods = len(pods.items)
-        running_pods = sum(1 for p in pods.items if p.status.phase == "Running")
-        failed_pods = sum(1 for p in pods.items if p.status.phase in ("Failed", "Unknown"))
+        for n in nodes.items:
+            is_ready = any(c.type == "Ready" and c.status == "True" for c in (n.status.conditions or []))
+            if is_ready:
+                ready_nodes.append(n.metadata.name)
+            else:
+                not_ready_nodes.append(n.metadata.name)
 
-        return (
-            f"🖥️ Nodes: {ready_nodes}/{total_nodes} ready\n"
-            f"🐳 Pods: {running_pods}/{total_pods} running, {failed_pods} failed"
+        from collections import defaultdict
+        ns_stats = defaultdict(lambda: {"total": 0, "running": 0})
+        unhealthy_pods = []
+
+        for p in pods.items:
+            ns = p.metadata.namespace
+            # But ALWAYS track unhealthy pods regardless of namespace
+            if p.status.phase not in ("Running", "Succeeded"):
+                unhealthy_pods.append(f"{ns}/{p.metadata.name}")
+
+            # Filter out kube-system from the namespace breakdown
+            if ns == "kube-system":
+                continue
+            
+            ns_stats[ns]["total"] += 1
+            if p.status.phase == "Running":
+                ns_stats[ns]["running"] += 1
+
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        status = (
+            f"🖥️ <b>Nodes:</b> {len(ready_nodes)}/{total_nodes} ready\n"
         )
+        if not_ready_nodes:
+            status += f"⚠️ <b>NotReady Nodes:</b> <code>{', '.join(not_ready_nodes)}</code>\n"
+            
+        status += "\n🐳 <b>Namespace Health:</b>\n"
+        if not ns_stats:
+            status += "  <i>(No user namespaces found)</i>\n"
+        else:
+            for ns, stats in sorted(ns_stats.items()):
+                emoji = "✅" if stats["running"] == stats["total"] else "⚠️"
+                status += f"  {emoji} <code>{ns}</code>: {stats['running']}/{stats['total']} running\n"
+        if unhealthy_pods:
+            # Only show first 3 to keep it clean
+            status += f"⚠️ <b>Unhealthy:</b> <code>{', '.join(unhealthy_pods[:3])}</code>\n"
+            if len(unhealthy_pods) > 3:
+                status += f"<i>...and {len(unhealthy_pods)-3} more</i>\n"
+
+        status += (
+            f"\n🌐 <b>Cluster:</b> <code>{cluster_name}</code>\n"
+            f"🔗 <b>Host:</b> <code>{api_host}</code>\n"
+            f"🕒 <b>Last Check:</b> {timestamp}"
+        )
+        return status
     except Exception as e:
         return f"Error getting status: {e}"
 
@@ -80,6 +132,40 @@ async def main(config_path: str = "config.yaml"):
     if cfg.audit.retention_days > 0:
         await audit.purge_old_records(cfg.audit.retention_days)
 
+    # ── Status callback ─────────────────────────────────────────────
+    async def status_callback(incident_id, message) -> None:
+        if bot:
+            await bot.send_alert(f"🛠️ <b>Update for <code>{incident_id[:8]}</code></b>\n\n{message}")
+
+    # ── Reconfirm callback ──────────────────────────────────────────
+    async def reconfirm_callback(incident_id, tool_name, tool_args) -> str:
+        from kubernetes import client as k8s_client
+        try:
+            v1 = k8s_client.CoreV1Api()
+            apps_v1 = k8s_client.AppsV1Api()
+            
+            name = tool_args.get("name")
+            ns = tool_args.get("namespace", "default")
+            
+            if tool_name in ("scale_deployment", "patch_deployment", "restart_deployment"):
+                status = await asyncio.to_thread(apps_v1.read_namespaced_deployment_status, name=name, namespace=ns)
+                ready = status.status.ready_replicas or 0
+                desired = status.status.replicas or 0
+                if ready >= desired and desired > 0:
+                    return f"✅ Issue resolved! Deployment <code>{name}</code> is healthy ({ready}/{desired} ready)."
+                return f"🔍 Issue persists. Deployment <code>{name}</code> only has {ready}/{desired} pods ready."
+                
+            elif tool_name in ("delete_pod", "get_pod_logs"):
+                pod = await asyncio.to_thread(v1.read_namespaced_pod, name=name, namespace=ns)
+                if pod.status.phase == "Running":
+                    return f"✅ Issue resolved! Pod <code>{name}</code> is now Running."
+                return f"🔍 Issue persists. Pod <code>{name}</code> is in <code>{pod.status.phase}</code> state."
+            
+            return "🔍 Issue persists. Please approve or reject to continue."
+        except Exception as e:
+            log.error(f"Reconfirm failed for {tool_name}: {e}")
+            return f"❌ Reconfirm error: {str(e)[:100]}"
+
     # ── Telegram bot ────────────────────────────────────────────────
     bot: TelegramBot | None = None
     if cfg.telegram.enabled:
@@ -89,6 +175,7 @@ async def main(config_path: str = "config.yaml"):
             token=cfg.telegram_bot_token,
             audit=audit,
             cluster_status_fn=cluster_status_summary,
+            reconfirm_callback=reconfirm_callback,
         )
         print("[BOOT] Spawning Telegram bot task...")
         async def start_with_logging():
@@ -102,20 +189,20 @@ async def main(config_path: str = "config.yaml"):
         asyncio.create_task(start_with_logging())
         print("[BOOT] Telegram bot task spawned.")
 
-    # ── Approval callback ───────────────────────────────────────────
     async def approval_callback(incident_id, tool_name, tool_args, reasoning, confidence) -> bool:
         if bot:
             return await bot.request_approval(incident_id, tool_name, tool_args, reasoning, confidence)
         return False  # no bot = never auto-approve destructive actions
 
     # ── Agent ───────────────────────────────────────────────────────
-    print("[BOOT] Initializing Agent...")
+    print(f"[BOOT] Initializing Agent with {len(tool_registry.all_specs())} tools registered...")
     agent = Claw8sAgent(
         cfg=cfg.agent,
         api_key=cfg.llm_api_key,
         tool_registry=tool_registry,
         audit=audit,
         approval_callback=approval_callback,
+        status_callback=status_callback,
     )
 
     # ── Incident queue + watcher ────────────────────────────────────
@@ -167,12 +254,13 @@ async def main(config_path: str = "config.yaml"):
 
         # Alert: incident detected
         if bot:
+            # We use an 'In Progress' status initially
             await bot.send_alert(
                 f"🚨 <b>Incident detected</b>\n\n"
                 f"<code>{incident.reason}</code> on <code>{incident.object_kind}/{incident.object_name}</code>\n"
                 f"Namespace: <code>{incident.namespace}</code>\n"
                 f"<i>{escape(incident.message[:200])}</i>\n\n"
-                f"🔍 Investigating..."
+                f"🛠️ <b>Status:</b> Investigating..."
             )
 
         # Run agent

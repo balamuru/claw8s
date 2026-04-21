@@ -177,15 +177,33 @@ class OpenAIBackend(LLMBackend):
     async def continue_with_results(self, tool_results) -> LLMTurn:
         # OpenAI: each tool result is a separate message with role "tool"
         for tool_call_id, name, content in tool_results:
+            # SAFETY: Gemini fails if name is empty
+            if not name:
+                log.warning(f"Tool name for {tool_call_id} was empty! Defaulting to 'unknown_tool'")
+                name = "unknown_tool"
+                
             self._messages.append({
                 "role": "tool",
                 "tool_call_id": tool_call_id,
                 "name": name,
-                "content": content,
+                "content": str(content),
             })
+        
+        # DEBUG: log the turn history count and last message name
+        log.info(f"Continuing conversation (turn {len(self._messages)}). Last tool: {name}")
         return await self._call()
 
     async def _call(self) -> LLMTurn:
+        # SAFETY: Gemini/OpenAI adapter is strict about tool names in history
+        for m in self._messages:
+            if m.get("role") == "tool" and not m.get("name"):
+                m["name"] = "unknown_tool"
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                for tc in m["tool_calls"]:
+                    if not tc.get("function", {}).get("name"):
+                        if "function" not in tc: tc["function"] = {}
+                        tc["function"]["name"] = "unknown_tool"
+
         kwargs = dict(
             model=self._model,
             max_tokens=self._max_tokens,
