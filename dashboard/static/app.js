@@ -124,13 +124,22 @@ function renderActions(actions) {
     });
 }
 
-closeBtn.onclick = () => detailPanel.classList.add('hidden');
-refreshBtn.onclick = () => { fetchIncidents(); fetchStats(); };
-clearBtn.onclick = clearIncidents;
-bucketSelect.onchange = fetchStats;
+document.addEventListener('DOMContentLoaded', () => {
+    // Re-select elements inside the wrapper for safety
+    const closeBtn = document.getElementById('close-detail');
+    const refreshBtn = document.getElementById('refresh-btn');
+    const clearBtn = document.getElementById('clear-btn');
+    const bucketSelect = document.getElementById('bucket-select');
 
-// Initial load
-fetchIncidents();
-fetchStats();
-// Polling
-setInterval(() => { fetchIncidents(); fetchStats(); }, 10000);
+    if (closeBtn) closeBtn.onclick = () => detailPanel.classList.add('hidden');
+    if (refreshBtn) refreshBtn.onclick = () => { fetchIncidents(); fetchStats(); };
+    if (clearBtn) clearBtn.onclick = clearIncidents;
+    if (bucketSelect) bucketSelect.onchange = fetchStats;
+
+    // Initial load
+    fetchIncidents();
+    fetchStats();
+    
+    // Polling
+    setInterval(() => { fetchIncidents(); fetchStats(); }, 10000);
+});

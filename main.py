@@ -180,9 +180,21 @@ async def main(config_path: str = "config.yaml"):
 
     processor_task = asyncio.create_task(process_incidents())
 
+    # ── Dashboard Server ───────────────────────────────────────────
+    import uvicorn
+    from dashboard.api import app as dashboard_app
+    
+    config = uvicorn.Config(dashboard_app, host="0.0.0.0", port=9090, log_level="error")
+    server = uvicorn.Server(config)
+    
+    # Run dashboard in background task
+    dashboard_task = asyncio.create_task(server.serve())
+    log.info("Dashboard started on http://localhost:9090")
+
     await shutdown_event.wait()
 
     log.info("Shutting down...")
+    dashboard_task.cancel()
     processor_task.cancel()
     watcher.stop()
     if bot:

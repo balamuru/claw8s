@@ -132,7 +132,8 @@ cp config.yaml.example config.yaml
 ### 4. Run
 ```bash
 python main.py --config config.yaml
-# or if installed: claw8s --config config.yaml
+```
+Claw8s will start the watcher, the Telegram bot, and the **Integrated Dashboard** on `http://localhost:9090`.
 ```
 
 ### Getting a Telegram Bot Token
