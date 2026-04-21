@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: web-app-deployment
 spec:
-  replicas: 30
+  replicas: 3
   selector:
     matchLabels:
       app: web-app
@@ -14,26 +14,26 @@ spec:
     spec:
       containers:
       - name: nginx
-        image: nginx:some-invalid-tag
+        image: nginx:latest
         resources:
           requests:
-            memory: "300Gi"   
-            cpu: "1m"    
+            memory: "1Gi"   
+            cpu: "500m"    
           limits:
-            memory: "340Gi"  
+            memory: "1Gi"  
             cpu: "500m"      
         ports:
         - containerPort: 80
         readinessProbe:
           httpGet:
-            path: /foo
+            path: /
             port: 80
           initialDelaySeconds: 5
           periodSeconds: 5
         livenessProbe:
           httpGet:
             path: /
-            port: 980
+            port: 80
           initialDelaySeconds: 15
           periodSeconds: 20        
 ---

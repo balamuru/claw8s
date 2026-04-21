@@ -82,7 +82,9 @@ class KubernetesWatcher:
                 v1 = k8s_client.CoreV1Api()
                 pods = await asyncio.to_thread(v1.list_pod_for_all_namespaces)
                 
+                evaluated = 0
                 for pod in pods.items:
+                    evaluated += 1
                     # Ignore healthy pods
                     if pod.status.phase == "Running":
                         is_ready = True
@@ -133,11 +135,11 @@ class KubernetesWatcher:
                         # Use unified queue method (handles debounce)
                         self._queue_incident(incident, self.loop)
                 
-                log.debug("Proactive stale pod scanner sweep complete.")
+                log.info(f"Proactive scanner heartbeat: {evaluated} pod(s) evaluated.")
                         
             except Exception as e:
                 log.error(f"Stale pod scanner error: {e}")
-            await asyncio.sleep(30) # Increase frequency to 30s
+            await asyncio.sleep(30)
 
     def stop(self):
         self._stop_event.set()

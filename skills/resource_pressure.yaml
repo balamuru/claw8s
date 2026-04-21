@@ -40,13 +40,18 @@ steps:
               template:
                 spec:
                   containers:
-                    - name: "nginx" # Skill assumes container name matches or can be fuzzy-matched
+                    - name: "nginx"
                       resources:
                         limits:
-                          memory: "512Mi" # In a real system, we'd use a variable here
+                          memory: "512Mi"
           reason: "Automated OOMKill remediation via Runbook"
       insufficient_resources:
-        inconclusive: true # Still fallback for complex scheduling issues
+        tool: list_pods
+        args:
+          namespace: "{{ incident.namespace }}"
+        # Now that we have the list, fall back to the agent with the context pre-loaded
+        inconclusive: true
+        findings: "Cluster is reporting insufficient resources. Here is the current pod list for the namespace to help identify candidates for eviction or scaling down."
       potential_leak:
         summary: "Resource usage for `{{ incident.object_name }}` is high but within limits. Monitoring for memory leaks."
       unknown:
