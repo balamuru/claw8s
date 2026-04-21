@@ -97,13 +97,14 @@ class AnthropicBackend(LLMBackend):
         self._messages = [{"role": "user", "content": user_message}]
         return await self._call()
 
-    async def continue_with_results(self, tool_results) -> LLMTurn:
+    async def continue_with_results(self, tool_results: list[tuple[str, str, str]]) -> LLMTurn:
         # Anthropic: tool results go in a user message as content blocks
+        # tool_results is [(id, name, content), ...]
         self._messages.append({
             "role": "user",
             "content": [
-                {"type": "tool_result", "tool_use_id": tid, "content": content}
-                for tid, content in tool_results
+                {"type": "tool_result", "tool_use_id": tid, "content": str(content)}
+                for tid, name, content in tool_results
             ],
         })
         return await self._call()
@@ -174,18 +175,16 @@ class OpenAIBackend(LLMBackend):
         ]
         return await self._call()
 
-    async def continue_with_results(self, tool_results) -> LLMTurn:
+    async def continue_with_results(self, tool_results: list[tuple[str, str, str]]) -> LLMTurn:
         # OpenAI: each tool result is a separate message with role "tool"
         for tool_call_id, name, content in tool_results:
-            # SAFETY: Gemini fails if name is empty
-            if not name:
-                log.warning(f"Tool name for {tool_call_id} was empty! Defaulting to 'unknown_tool'")
-                name = "unknown_tool"
-                
+            # SAFETY: Gemini fails if name is empty. If name is missing, use a fallback.
+            safe_name = name if name and str(name).strip() else "remediation_tool"
+            
             self._messages.append({
                 "role": "tool",
                 "tool_call_id": tool_call_id,
-                "name": name,
+                "name": safe_name,
                 "content": str(content),
             })
         
@@ -194,15 +193,36 @@ class OpenAIBackend(LLMBackend):
         return await self._call()
 
     async def _call(self) -> LLMTurn:
-        # SAFETY: Gemini/OpenAI adapter is strict about tool names in history
+        # IRON SHIELD SANITIZER: Gemini/OpenAI adapter is extremely strict.
+        # We must ensure every message is a dict and has all required protocol fields.
+        sanitized = []
         for m in self._messages:
-            if m.get("role") == "tool" and not m.get("name"):
-                m["name"] = "unknown_tool"
-            if m.get("role") == "assistant" and m.get("tool_calls"):
-                for tc in m["tool_calls"]:
-                    if not tc.get("function", {}).get("name"):
-                        if "function" not in tc: tc["function"] = {}
-                        tc["function"]["name"] = "unknown_tool"
+            # Ensure m is a dict
+            if hasattr(m, "model_dump"):
+                m_dict = m.model_dump(exclude_none=True) # Don't exclude unset, Gemini might want them
+            else:
+                m_dict = dict(m)
+
+            role = m_dict.get("role")
+            if role == "tool":
+                if not m_dict.get("name") or not str(m_dict.get("name")).strip():
+                    m_dict["name"] = "remediation_tool"
+            elif role == "assistant":
+                tcs = m_dict.get("tool_calls")
+                if tcs:
+                    for tc in tcs:
+                        if "function" not in tc:
+                            tc["function"] = {"name": "remediation_tool", "arguments": "{}"}
+                        else:
+                            f = tc["function"]
+                            if not f.get("name") or not str(f.get("name")).strip():
+                                f["name"] = "remediation_tool"
+                            if f.get("arguments") is None:
+                                f["arguments"] = "{}"
+            sanitized.append(m_dict)
+
+        # Update internal history with sanitized versions to prevent drift
+        self._messages = sanitized
 
         kwargs = dict(
             model=self._model,

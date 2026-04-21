@@ -77,10 +77,15 @@ class TelegramBot:
         """Start polling in the background."""
         print("[BOT] Initializing Telegram application...")
         await self._app.initialize()
-        print("[BOT] Starting Telegram application...")
+        
+        # Clear any stale webhooks and pending updates to ensure clean polling
+        print("[BOT] Cleaning webhooks and starting polling...")
+        await self._app.bot.delete_webhook(drop_pending_updates=True)
+        
         await self._app.start()
-        print("[BOT] Starting Telegram polling...")
-        # Sync command menu to clear ghost commands
+        await self._app.updater.start_polling()
+        
+        # Sync command menu
         from telegram import BotCommand
         commands = [
             BotCommand("status", "Current cluster health summary"),
@@ -96,9 +101,13 @@ class TelegramBot:
         print("[BOT] Telegram bot is fully online and listening.")
 
     async def stop(self):
-        await self._app.updater.stop()
-        await self._app.stop()
-        await self._app.shutdown()
+        """Stop the bot gracefully."""
+        if self._app and self._app.updater and self._app.updater.running:
+            await self._app.updater.stop()
+        if self._app and self._app.running:
+            await self._app.stop()
+        if self._app:
+            await self._app.shutdown()
 
     async def send_alert(self, text: str):
         """Push a plain alert message to the primary chat."""
@@ -142,16 +151,13 @@ class TelegramBot:
 
         args_str = "\n".join(f"  {k}: {v}" for k, v in tool_args.items())
 
-        def escape(t: str) -> str:
-            return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
         text = (
             f"<b>🛡️ Approval Required</b>\n"
             f"Incident: <code>{incident_id}</code>\n"
             f"Action: <b>{tool_name}</b>\n"
             f"Confidence: {confidence:.0%}\n\n"
-            f"<b>Args:</b>\n<pre>{escape(args_str)}</pre>\n\n"
-            f"<b>Reasoning:</b> {escape(reasoning[:600])}"
+            f"<b>Args:</b>\n<pre>{self._escape_html(args_str)}</pre>\n\n"
+            f"<b>Reasoning:</b> {self._escape_html(reasoning[:600])}"
         )
         keyboard = InlineKeyboardMarkup([
             [
@@ -211,7 +217,9 @@ class TelegramBot:
         )
 
     async def _cmd_status(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        print(f"[BOT] Command: /status from {update.effective_user.id}")
         if not self._is_authorized(update.effective_user.id):
+            await update.message.reply_text("⛔ Not authorized.")
             return
         if self.cluster_status_fn:
             status = await self.cluster_status_fn()
@@ -220,7 +228,9 @@ class TelegramBot:
         await update.message.reply_text(f"📊 <b>Cluster Status</b>\n\n{status}", parse_mode="HTML")
 
     async def _cmd_history(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        print(f"[BOT] Command: /history from {update.effective_user.id}")
         if not self._is_authorized(update.effective_user.id):
+            await update.message.reply_text("⛔ Not authorized.")
             return
         incidents = await self.audit.get_recent_incidents(limit=10)
         if not incidents:
@@ -235,7 +245,9 @@ class TelegramBot:
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
     async def _cmd_fix(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        print(f"[BOT] Command: /fix from {update.effective_user.id}")
         if not self._is_authorized(update.effective_user.id):
+            await update.message.reply_text("⛔ Not authorized.")
             return
         
         instruction = " ".join(ctx.args)
@@ -243,17 +255,23 @@ class TelegramBot:
             await update.message.reply_text("Please provide an instruction, e.g. <code>/fix scale web-app to 3</code>", parse_mode="HTML")
             return
             
-        await update.message.reply_text(f"🪄 <b>Claw8s Command Received</b>\nInstruction: <i>{instruction}</i>\n\nTranslating to K8s actions...", parse_mode="HTML")
+        def escape(t: str) -> str:
+            return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+        await update.message.reply_text(f"🪄 <b>Claw8s Command Received</b>\nInstruction: <i>{self._escape_html(instruction)}</i>\n\nTranslating to K8s actions...", parse_mode="HTML")
         
         if self.manual_command_callback:
             try:
                 result = await self.manual_command_callback(instruction)
-                await update.message.reply_text(f"✅ <b>Execution Result:</b>\n{result}", parse_mode="HTML")
+                await update.message.reply_text(f"✅ <b>Execution Result:</b>\n{self._escape_html(result)}", parse_mode="HTML")
             except Exception as e:
                 log.error(f"Manual command failed: {e}")
-                await update.message.reply_text(f"❌ <b>Execution Failed:</b>\n{str(e)[:500]}", parse_mode="HTML")
+                await update.message.reply_text(f"❌ <b>Execution Failed:</b>\n{self._escape_html(str(e)[:500])}", parse_mode="HTML")
         else:
             await update.message.reply_text("❌ Manual commands are not enabled in this instance.")
+
+    def _escape_html(self, text: str) -> str:
+        return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     async def _handle_approval(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query

@@ -124,22 +124,22 @@ class Claw8sAgent:
         log.info(f"Agent executing manual instruction: {instruction}")
         
         # 1. Build a specialized prompt
-        system = SYSTEM_PROMPT + "\n\n## MANUAL OVERRIDE\nThe user has issued a direct command. Your primary goal is to fulfill this command using your tools. If the command is ambiguous, ask for clarification. If you need context, look at the cluster state."
+        system = SYSTEM_PROMPT + "\n\n## MANUAL OVERRIDE\nThe user has issued a direct command. You MUST prioritize executing tools to fulfill this command immediately. Do not explain what you are going to do — JUST DO IT. If you are missing a parameter (like deployment name or namespace), use your tools to find it. Treat this as a 100% confidence request from a human commander."
         
         user_msg = f"DIRECT COMMAND: {instruction}\n\n"
         if incident:
             user_msg += f"Context: This command likely refers to the following active incident:\n{self._incident_context(incident, '')}"
         else:
-            user_msg += "Context: No active incident selected. You may need to list pods or deployments to find the target."
+            user_msg += "Context: No active incident selected. Use your tools to explore the cluster if needed."
 
         # 2. Start the loop
         tools = self.backend.get_tools(self.registry)
         turn = await self.backend.chat(system, tools, user_msg, self.cfg.model, self.cfg.max_tokens)
         
-        res = await self._execute_loop(incident.id if incident else "manual-cmd", turn, tools, [])
+        res = await self._execute_loop(incident.id if incident else "manual-cmd", turn, tools, [], is_manual=True)
         return res.summary
 
-    async def _execute_loop(self, incident_id: str, turn: llm.LLMTurn, tools: list[dict], actions_taken: list[dict]) -> AgentResult:
+    async def _execute_loop(self, incident_id: str, turn: llm.LLMTurn, tools: list[dict], actions_taken: list[dict], is_manual: bool = False) -> AgentResult:
         tool_call_count = 0
         needs_human = False
         human_message = None
@@ -176,7 +176,10 @@ class Claw8sAgent:
 
                 # Safety: Deny by Default for destructive/unknown tools
                 approved = False
-                if tool_spec and not tool_spec.is_destructive:
+                if is_manual:
+                    approved = True
+                    log.info(f"Manual override: auto-approving {tc.name}")
+                elif tool_spec and not tool_spec.is_destructive:
                     # Read-only tools are always approved
                     approved = True
                 else:

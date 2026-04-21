@@ -57,3 +57,11 @@ The `/status` and `/refresh` commands provide a categorized breakdown of pod hea
 *   **Namespace Protection**: Mutating tools refuse to touch `kube-system` autonomously.
 *   **Threshold-Based Autonomy**: Actions with confidence < 85% require human approval.
 *   **64-Byte Callback Compression**: Telegram button data is hashed and mapped to internal memory to stay within strict API limits.
+
+## 7. Manual Command Pipeline (Commander Overdrive)
+
+Claw8s supports direct human-to-agent instructions via the `/fix` command.
+
+*   **Instruction Routing**: Unlike autonomous incidents, manual instructions bypass the "auto-remediate" confidence threshold. The human's intent is treated with **100% confidence** (Auto-Approved).
+*   **Working Memory Injection**: When a manual command is issued, the agent is automatically provided with the context of the `last_incident`. This allows for implicit targeting (e.g., saying "scale to 3" while an alert for `web-app` is active).
+*   **Actionable Translation**: The agent uses its internal tools to translate high-level natural language (e.g., "set replicas to 4") into specific tool calls (`scale_deployment`).

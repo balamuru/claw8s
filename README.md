@@ -3,7 +3,7 @@
 </p>
 <h1 align="center">claw8s</h1>
 <p align="center">
-  Autonomous Kubernetes monitoring and remediation agent powered by LLMs (Claude, GPT, Gemini, Ollama).
+  PoC of an Autonomous Kubernetes monitoring and remediation agent powered by LLMs (Claude, GPT, Gemini, Ollama).
 </p>
 
 <p align="center">
@@ -45,6 +45,9 @@ graph TD
 Claw8s provides a powerful mobile interface for cluster management:
 *   `/status` & `/refresh`: Get a namespace-aware breakdown of cluster health with live timestamps.
 *   `/history`: View the last 10 incidents and their resolution paths.
+*   `/fix <instruction>`: **Commander Overdrive.** Issue natural language instructions directly to the agent.
+    *   *Example:* `/fix scale web-app to 3 replicas`
+    *   *Example:* `/fix change liveness probe to /healthz`
 *   **Interactive Approvals**: Review reasoning and confidence scores before approving destructive actions.
 
 ---
