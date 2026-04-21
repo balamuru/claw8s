@@ -167,6 +167,26 @@ async def main(config_path: str = "config.yaml"):
             return f"❌ Reconfirm error: {str(e)[:100]}"
 
     # ── Telegram bot ────────────────────────────────────────────────
+        print("[BOOT] Telegram bot task spawned.")
+
+    async def approval_callback(incident_id, tool_name, tool_args, reasoning, confidence) -> bool:
+        if bot:
+            return await bot.request_approval(incident_id, tool_name, tool_args, reasoning, confidence)
+        return False  # no bot = never auto-approve destructive actions
+
+    last_incident: Incident | None = None
+
+    # ── Agent ───────────────────────────────────────────────────────
+    agent = Claw8sAgent(
+        cfg=cfg.agent,
+        api_key=cfg.llm_api_key,
+        tool_registry=tool_registry,
+        audit=audit,
+        approval_callback=approval_callback,
+        status_callback=status_callback,
+    )
+
+    # ── Telegram bot ────────────────────────────────────────────────
     bot: TelegramBot | None = None
     if cfg.telegram.enabled:
         print("[BOOT] Initializing Telegram bot...")
@@ -176,6 +196,7 @@ async def main(config_path: str = "config.yaml"):
             audit=audit,
             cluster_status_fn=cluster_status_summary,
             reconfirm_callback=reconfirm_callback,
+            manual_command_callback=lambda instr: agent.execute_manual_instruction(instr, last_incident),
         )
         print("[BOOT] Spawning Telegram bot task...")
         async def start_with_logging():
@@ -188,22 +209,6 @@ async def main(config_path: str = "config.yaml"):
         
         asyncio.create_task(start_with_logging())
         print("[BOOT] Telegram bot task spawned.")
-
-    async def approval_callback(incident_id, tool_name, tool_args, reasoning, confidence) -> bool:
-        if bot:
-            return await bot.request_approval(incident_id, tool_name, tool_args, reasoning, confidence)
-        return False  # no bot = never auto-approve destructive actions
-
-    # ── Agent ───────────────────────────────────────────────────────
-    print(f"[BOOT] Initializing Agent with {len(tool_registry.all_specs())} tools registered...")
-    agent = Claw8sAgent(
-        cfg=cfg.agent,
-        api_key=cfg.llm_api_key,
-        tool_registry=tool_registry,
-        audit=audit,
-        approval_callback=approval_callback,
-        status_callback=status_callback,
-    )
 
     # ── Incident queue + watcher ────────────────────────────────────
     print("[BOOT] Starting K8s Watcher...")
@@ -228,6 +233,8 @@ async def main(config_path: str = "config.yaml"):
             asyncio.create_task(handle_incident(incident))
 
     async def handle_incident(incident: Incident):
+        nonlocal last_incident
+        last_incident = incident
         # Log the raw event
         log.info(f"Pre-flight: Persisting incident {incident.id[:8]} to audit database...")
         
@@ -279,9 +286,19 @@ async def main(config_path: str = "config.yaml"):
                 await bot.send_alert(
                     f"{emoji} <b>Incident resolved</b>\n\n"
                     f"ID: <code>{incident.id[:8]}</code>\n"
+                    f"<code>{incident.reason}</code> on <code>{incident.object_kind}/{incident.object_name}</code>\n"
                     f"{actions_summary}"
-                    f"<b>Summary:</b> {result.summary}"
+                    f"<b>Summary:</b> {escape(result.summary[:600])}"
                 )
+                
+                # If resolved successfully, clear debounce so we catch regressions immediately
+                if not result.needs_human:
+                    watcher.reset_debounce(
+                        incident.namespace, 
+                        incident.object_kind, 
+                        incident.object_name, 
+                        incident.reason
+                    )
 
                 if result.needs_human and result.human_message:
                     await bot.send_alert(f"👤 <b>Human attention needed:</b>\n\n{result.human_message}")

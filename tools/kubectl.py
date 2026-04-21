@@ -209,13 +209,46 @@ async def get_deployment_status(**kwargs) -> ToolResult:
 
     try:
         apps_v1 = k8s_client.AppsV1Api()
+        v1 = k8s_client.CoreV1Api()
         d = await asyncio.to_thread(apps_v1.read_namespaced_deployment, name=resolved_name, namespace=namespace)
+        
+        # Fetch pods for this deployment to check restarts
+        selector = ""
+        if d.spec.selector and d.spec.selector.match_labels:
+            selector = ",".join([f"{k}={v}" for k, v in d.spec.selector.match_labels.items()])
+        
+        pods = await asyncio.to_thread(v1.list_namespaced_pod, namespace=namespace, label_selector=selector)
+        
+        pod_details = []
+        total_restarts = 0
+        for p in pods.items:
+            restarts = sum(cs.restart_count for cs in (p.status.container_statuses or []))
+            total_restarts += restarts
+            pod_details.append({
+                "name": p.metadata.name,
+                "phase": p.status.phase,
+                "restarts": restarts,
+                "ready": all(cs.ready for cs in (p.status.container_statuses or [])) if p.status.container_statuses else False
+            })
+
+        ready = d.status.ready_replicas or 0
+        desired = d.spec.replicas or 0
+        available = d.status.available_replicas or 0
+        
+        health = "HEALTHY"
+        if ready < desired: health = "DEGRADED"
+        if total_restarts > 0: health = "STABILITY_ISSUE (Restarting)"
+        if available == 0 and desired > 0: health = "UNAVAILABLE"
+
         info = {
-            "desired": d.spec.replicas,
-            "ready": d.status.ready_replicas,
-            "available": d.status.available_replicas,
-            "updated": d.status.updated_replicas,
-            "conditions": [{"type": c.type, "status": c.status, "reason": c.reason, "message": c.message}
+            "deployment": resolved_name,
+            "status": health,
+            "desired_replicas": desired,
+            "ready_replicas": ready,
+            "available_replicas": available,
+            "total_restart_count": total_restarts,
+            "pods": pod_details,
+            "conditions": [{"type": c.type, "status": c.status, "message": c.message}
                            for c in (d.status.conditions or [])],
         }
         return ToolResult(success=True, output=json.dumps(info, indent=2))

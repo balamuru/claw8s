@@ -117,12 +117,37 @@ class Claw8sAgent:
             model=self.cfg.model,
             max_tokens=self.cfg.max_tokens,
         )
-        log.info(f"First LLM turn complete. Text response: {bool(turn.text)}, Tool calls: {len(turn.tool_calls)}")
+        return await self._execute_loop(incident.id, turn, tools, actions_taken)
+
+    async def execute_manual_instruction(self, instruction: str, incident: Incident = None) -> str:
+        """Handle a direct human command like '/fix scale to 3'."""
+        log.info(f"Agent executing manual instruction: {instruction}")
+        
+        # 1. Build a specialized prompt
+        system = SYSTEM_PROMPT + "\n\n## MANUAL OVERRIDE\nThe user has issued a direct command. Your primary goal is to fulfill this command using your tools. If the command is ambiguous, ask for clarification. If you need context, look at the cluster state."
+        
+        user_msg = f"DIRECT COMMAND: {instruction}\n\n"
+        if incident:
+            user_msg += f"Context: This command likely refers to the following active incident:\n{self._incident_context(incident, '')}"
+        else:
+            user_msg += "Context: No active incident selected. You may need to list pods or deployments to find the target."
+
+        # 2. Start the loop
+        tools = self.backend.get_tools(self.registry)
+        turn = await self.backend.chat(system, tools, user_msg, self.cfg.model, self.cfg.max_tokens)
+        
+        res = await self._execute_loop(incident.id if incident else "manual-cmd", turn, tools, [])
+        return res.summary
+
+    async def _execute_loop(self, incident_id: str, turn: llm.LLMTurn, tools: list[dict], actions_taken: list[dict]) -> AgentResult:
+        tool_call_count = 0
+        needs_human = False
+        human_message = None
 
         while True:
             if turn.finished:
                 return AgentResult(
-                    incident_id=incident.id,
+                    incident_id=incident_id,
                     summary=turn.text or "",
                     actions_taken=actions_taken,
                     needs_human=needs_human,
@@ -130,7 +155,7 @@ class Claw8sAgent:
                 )
 
             if tool_call_count >= self.cfg.max_tool_calls:
-                log.warning(f"Reached max tool calls ({self.cfg.max_tool_calls}) for incident {incident.id}")
+                log.warning(f"Reached max tool calls ({self.cfg.max_tool_calls}) for incident {incident_id}")
                 needs_human = True
                 human_message = f"Reached max tool call limit ({self.cfg.max_tool_calls}). Manual review needed."
                 break
@@ -163,7 +188,7 @@ class Claw8sAgent:
                         log.info(f"Action {tc.name} requires approval (confidence {confidence:.2f} < threshold {self.cfg.auto_remediate_threshold})")
                         if self.approval_callback:
                             approved = await self.approval_callback(
-                                incident.id, tc.name, tc.args, reasoning, confidence
+                                incident_id, tc.name, tc.args, reasoning, confidence
                             )
                         else:
                             approved = False
@@ -172,7 +197,7 @@ class Claw8sAgent:
 
                 # Log the action with tokens
                 await self.audit.log_action(AuditAction(
-                    incident_id=incident.id,
+                    incident_id=incident_id,
                     timestamp=now_iso(),
                     tool_name=tc.name,
                     tool_args=json.dumps(tc.args),
@@ -187,13 +212,13 @@ class Claw8sAgent:
                 if approved:
                     if tc.name == "send_status_update" and self.status_callback:
                         msg = tc.args.get("message", "No message provided.")
-                        await self.status_callback(incident.id, msg)
+                        await self.status_callback(incident_id, msg)
                         result = ToolResult(success=True, output=f"Status update sent: {msg}")
                     else:
                         result: ToolResult = await self.registry.call(tc.name, tc.args, source="soul")
                     
                     status = ActionStatus.EXECUTED if result.success else ActionStatus.FAILED
-                    await self.audit.update_action_result(incident.id, tc.name, status, result.output)
+                    await self.audit.update_action_result(incident_id, tc.name, status, result.output)
 
                     actions_taken.append({
                         "tool": tc.name,
@@ -210,7 +235,7 @@ class Claw8sAgent:
 
         # Fallback if loop exits unexpectedly
         return AgentResult(
-            incident_id=incident.id,
+            incident_id=incident_id,
             summary="Agent loop ended without a conclusion. Manual review recommended.",
             actions_taken=actions_taken,
             needs_human=True,

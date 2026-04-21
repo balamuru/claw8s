@@ -109,8 +109,13 @@ class KubernetesWatcher:
                             reason = "FailedScheduling"
                             message = f"Pod unschedulable: {cond.message} (proactive scan)"
                         elif cond.type == "Ready" and cond.status == "False" and cond.reason == "ContainersNotReady":
-                             # This might be normal during startup, only flag if older than 2m
-                             pass
+                             # Flag if older than 2m
+                             from datetime import datetime, timezone
+                             if pod.metadata.creation_timestamp:
+                                age = (datetime.now(timezone.utc) - pod.metadata.creation_timestamp).total_seconds()
+                                if age > 120:
+                                    reason = "Unhealthy"
+                                    message = f"Pod containers not ready for > 2m (age: {int(age)}s)"
 
                     # Check Container Statuses
                     for cs in (pod.status.container_statuses or []):
@@ -238,3 +243,17 @@ class KubernetesWatcher:
 
         log.info(f"Incident queued: [{incident.reason}] {incident.object_kind}/{group_key} (grouped) in {incident.namespace}")
         loop.call_soon_threadsafe(self.queue.put_nowait, incident)
+
+    def reset_debounce(self, namespace: str, object_kind: str, object_name: str, reason: str):
+        """Manually reset the debounce timer for an object (e.g. after resolution)."""
+        group_key = object_name
+        if object_kind == "Pod" and "-" in object_name:
+            parts = object_name.split("-")
+            if len(parts) >= 3:
+                group_key = "-".join(parts[:-2])
+        
+        debounce_key = (namespace, object_kind, group_key, reason)
+        with self._lock:
+            if debounce_key in self._debounce:
+                log.info(f"Resetting debounce timer for {object_kind}/{group_key} ({reason}) in {namespace}")
+                self._debounce.pop(debounce_key, None)

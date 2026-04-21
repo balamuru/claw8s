@@ -47,11 +47,14 @@ class TelegramBot:
         audit: AuditLog,
         cluster_status_fn: Optional[Callable] = None,  # async fn → str
         reconfirm_callback: Optional[Callable] = None, # async fn(id, name, args) → str
+        # manual_command_callback: called with (instruction) to execute a manual command
+        manual_command_callback=None,
     ):
         self.cfg = cfg
         self.audit = audit
         self.cluster_status_fn = cluster_status_fn
         self.reconfirm_callback = reconfirm_callback
+        self.manual_command_callback = manual_command_callback
 
         self._app = Application.builder().token(token).build()
         self._pending: dict[str, dict] = {}  # callback_id → {future, tool_name, tool_args}
@@ -62,6 +65,7 @@ class TelegramBot:
         self._app.add_handler(CommandHandler("status", self._cmd_status))
         self._app.add_handler(CommandHandler("refresh", self._cmd_status))
         self._app.add_handler(CommandHandler("history", self._cmd_history))
+        self._app.add_handler(CommandHandler("fix", self._cmd_fix))
         self._app.add_handler(CallbackQueryHandler(self._handle_approval))
 
         # Primary chat ID — we'll learn it on first /start, or use from config
@@ -82,6 +86,7 @@ class TelegramBot:
             BotCommand("status", "Current cluster health summary"),
             BotCommand("refresh", "Force a live cluster health scan"),
             BotCommand("history", "View last 10 incidents"),
+            BotCommand("fix", "Instruct agent to take specific action"),
             BotCommand("help", "Show available commands"),
         ]
         await self._app.bot.set_my_commands(commands)
@@ -199,6 +204,7 @@ class TelegramBot:
             "<b>Claw8s Commands</b>\n\n"
             "/status — cluster health overview\n"
             "/history — last 10 incidents\n"
+            "/fix <instruction> — direct order to agent\n"
             "/start — register this chat for alerts\n"
             "/help — this message",
             parse_mode="HTML",
@@ -227,6 +233,27 @@ class TelegramBot:
                 f"{i['object_kind']}/{i['object_name']} | <b>{i['reason']}</b>"
             )
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+    async def _cmd_fix(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        if not self._is_authorized(update.effective_user.id):
+            return
+        
+        instruction = " ".join(ctx.args)
+        if not instruction:
+            await update.message.reply_text("Please provide an instruction, e.g. <code>/fix scale web-app to 3</code>", parse_mode="HTML")
+            return
+            
+        await update.message.reply_text(f"🪄 <b>Claw8s Command Received</b>\nInstruction: <i>{instruction}</i>\n\nTranslating to K8s actions...", parse_mode="HTML")
+        
+        if self.manual_command_callback:
+            try:
+                result = await self.manual_command_callback(instruction)
+                await update.message.reply_text(f"✅ <b>Execution Result:</b>\n{result}", parse_mode="HTML")
+            except Exception as e:
+                log.error(f"Manual command failed: {e}")
+                await update.message.reply_text(f"❌ <b>Execution Failed:</b>\n{str(e)[:500]}", parse_mode="HTML")
+        else:
+            await update.message.reply_text("❌ Manual commands are not enabled in this instance.")
 
     async def _handle_approval(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
