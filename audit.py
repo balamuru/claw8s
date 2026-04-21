@@ -139,15 +139,49 @@ class AuditLog:
                 for r in rows
             ]
 
+    async def get_dashboard_data(self, limit: int = 50) -> list[dict]:
+        """Fetch joined data for the dashboard."""
+        query = """
+            SELECT 
+                e.incident_id, 
+                MAX(e.timestamp) as ts, 
+                e.namespace, 
+                e.object_kind, 
+                e.object_name, 
+                e.reason,
+                (SELECT status FROM actions WHERE incident_id = e.incident_id ORDER BY id DESC LIMIT 1) as last_status,
+                (SELECT source FROM actions WHERE incident_id = e.incident_id ORDER BY id DESC LIMIT 1) as last_source
+            FROM events e
+            GROUP BY e.incident_id
+            ORDER BY ts DESC
+            LIMIT ?
+        """
+        async with self._db.execute(query, (limit,)) as cursor:
+            rows = await cursor.fetchall()
+            return [
+                {
+                    "incident_id": r[0], 
+                    "timestamp": r[1], 
+                    "namespace": r[2],
+                    "object_kind": r[3], 
+                    "object_name": r[4], 
+                    "reason": r[5],
+                    "status": r[6] or "pending",
+                    "source": r[7] or "unknown"
+                }
+                for r in rows
+            ]
+
+
     async def get_incident_actions(self, incident_id: str) -> list[dict]:
         async with self._db.execute("""
-            SELECT tool_name, tool_args, reasoning, confidence, status, result, timestamp
+            SELECT tool_name, tool_args, reasoning, confidence, status, result, timestamp, source
             FROM actions WHERE incident_id=? ORDER BY id
         """, (incident_id,)) as cursor:
             rows = await cursor.fetchall()
             return [
                 {"tool": r[0], "args": r[1], "reasoning": r[2],
-                 "confidence": r[3], "status": r[4], "result": r[5], "timestamp": r[6]}
+                 "confidence": r[3], "status": r[4], "result": r[5], "timestamp": r[6], "source": r[7]}
                 for r in rows
             ]
 

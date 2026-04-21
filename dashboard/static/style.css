@@ -1,0 +1,229 @@
+:root {
+    --bg-dark: #0a0b10;
+    --card-bg: rgba(255, 255, 255, 0.03);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --accent-blue: #3b82f6;
+    --accent-purple: #8b5cf6;
+    --text-main: #f3f4f6;
+    --text-dim: #9ca3af;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --error: #ef4444;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-dark);
+    color: var(--text-main);
+    line-height: 1.5;
+    overflow-x: hidden;
+}
+
+.app-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 3rem;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.logo h1 {
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+}
+
+.badge {
+    font-size: 0.7rem;
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+    padding: 0.2rem 0.6rem;
+    border-radius: 20px;
+    text-transform: uppercase;
+    margin-left: 0.5rem;
+}
+
+.pulse {
+    animation: pulse-animation 2s infinite;
+    color: var(--success);
+}
+
+@keyframes pulse-animation {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 1.5rem;
+}
+
+.card {
+    background: var(--card-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 1.5rem;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+}
+
+.card:hover {
+    border-color: var(--accent-blue);
+    transform: translateY(-4px);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+
+.status-pill {
+    font-size: 0.75rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.1);
+}
+
+.status-pill.executed { color: var(--success); border: 1px solid var(--success); }
+.status-pill.pending { color: var(--warning); border: 1px solid var(--warning); }
+.status-pill.failed { color: var(--error); border: 1px solid var(--error); }
+
+.card-body h3 {
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
+}
+
+.meta {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+}
+
+.source-tag {
+    font-size: 0.7rem;
+    color: var(--accent-purple);
+    font-weight: 600;
+}
+
+/* Detail Panel */
+.detail-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 500px;
+    height: 100vh;
+    background: rgba(10, 11, 16, 0.95);
+    border-left: 1px solid var(--glass-border);
+    backdrop-filter: blur(20px);
+    z-index: 100;
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    padding: 2rem;
+    overflow-y: auto;
+}
+
+.detail-panel.hidden {
+    transform: translateX(100%);
+}
+
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.btn-close {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 2rem;
+    cursor: pointer;
+}
+
+.timeline-item {
+    position: relative;
+    padding-left: 2rem;
+    padding-bottom: 2rem;
+    border-left: 1px solid var(--glass-border);
+}
+
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -5px;
+    top: 0;
+    width: 9px;
+    height: 9px;
+    background: var(--accent-blue);
+    border-radius: 50%;
+}
+
+.timeline-time {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+}
+
+.timeline-tool {
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.timeline-reason {
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    margin-top: 0.5rem;
+    background: rgba(0,0,0,0.3);
+    padding: 0.5rem;
+    border-radius: 4px;
+}
+
+pre {
+    font-size: 0.75rem;
+    background: #1a1b23;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-top: 1rem;
+    overflow-x: auto;
+    color: #a5d6ff;
+}
+
+.btn-secondary {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--glass-border);
+    color: var(--text-main);
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.btn-secondary:hover {
+    background: rgba(255,255,255,0.1);
+}

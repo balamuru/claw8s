@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claw8s | Autonomous K8s Dashboard</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <div class="logo">
+                <span class="logo-icon">🛡️</span>
+                <h1>Claw8s <span class="badge">Autonomous</span></h1>
+            </div>
+            <div class="stats">
+                <div class="stat-item">
+                    <span class="stat-label">System Status</span>
+                    <span class="stat-value pulse">Active</span>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <section class="incident-list">
+                <div class="section-header">
+                    <h2>Recent Incidents</h2>
+                    <button id="refresh-btn" class="btn-secondary">Refresh</button>
+                </div>
+                <div id="incidents-container" class="grid">
+                    <!-- Incidents will be injected here -->
+                    <div class="loading">Analyzing cluster state...</div>
+                </div>
+            </section>
+
+            <section id="detail-view" class="detail-panel hidden">
+                <div class="panel-content">
+                    <header class="panel-header">
+                        <h3>Incident Details</h3>
+                        <button id="close-detail" class="btn-close">&times;</button>
+                    </header>
+                    <div id="action-history" class="timeline">
+                        <!-- Actions will be injected here -->
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>

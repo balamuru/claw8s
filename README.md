@@ -65,7 +65,22 @@ Claw8s operates on a dual-layer logic system to balance efficiency with reasonin
 
 ---
 
-## Configuration
+## 📊 Dashboard
+
+Claw8s includes a premium web dashboard to track incidents and autonomous actions in real-time.
+
+### Installation
+```bash
+pip install -r requirements.txt
+```
+
+### Launch
+```bash
+python dashboard/run.py
+```
+Then visit `http://localhost:9090`.
+
+## 🛠️ Configuration
 
 | Key | Default | Description |
 |-----|---------|-------------|
