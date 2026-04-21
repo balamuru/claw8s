@@ -39,6 +39,7 @@ import llm
 
 from tools.registry import ToolRegistry, ToolResult
 from watcher import Incident
+from audit import AuditLog, AuditAction, ActionStatus, now_iso
 from . import SkillResult
 
 log = logging.getLogger(__name__)
@@ -82,11 +83,13 @@ class SkillRunner:
         self,
         tools: ToolRegistry,
         api_key: str,
+        audit: AuditLog,
         provider: str = "anthropic",
         base_url: str = "",
         model: str = "claude-haiku-4-5",
     ):
         self._tools = tools
+        self._audit = audit
         self._backend = llm.get_backend(provider, api_key, base_url)
         # A fast, cheap model is ideal for the narrow classification task.
         self._model = model
@@ -96,7 +99,7 @@ class SkillRunner:
         log.info(f"[skill:{name}] Starting for incident {incident.id} ({incident.reason})")
 
         # Execution context — holds incident + results of previous steps
-        ctx: dict[str, Any] = {"incident": incident}
+        ctx: dict[str, Any] = {"incident": incident, "_skill_name": name}
         actions_taken: list[dict] = []
         findings_parts: list[str] = []
 
@@ -105,7 +108,7 @@ class SkillRunner:
 
             # ── Tool step ─────────────────────────────────────────────────
             if "tool" in step:
-                result = await self._exec_tool(step, ctx, step_id)
+                result = await self._exec_tool(step, ctx, step_id, incident)
                 ctx[step_id] = result
                 if result.success:
                     findings_parts.append(f"### {step_id}\n{result.output[:800]}")
@@ -131,7 +134,7 @@ class SkillRunner:
             elif "switch" in step:
                 findings = "\n\n".join(findings_parts)
                 return await self._exec_switch(
-                    step, ctx, actions_taken, findings, name
+                    step, ctx, actions_taken, findings, name, incident
                 )
 
         # Loop finished without a switch — skill couldn't reach a conclusion
@@ -144,11 +147,30 @@ class SkillRunner:
 
     # ── Step executors ────────────────────────────────────────────────────────
 
-    async def _exec_tool(self, step: dict, ctx: dict, step_id: str) -> ToolResult:
+    async def _exec_tool(self, step: dict, ctx: dict, step_id: str, incident: Incident, reasoning: str = "") -> ToolResult:
         tool_name = step["tool"]
         args = _render(step.get("args", {}), ctx)
         log.info(f"Skill tool call: {tool_name}({args})")
-        return await self._tools.call(tool_name, args)
+
+        # Log to audit
+        action = AuditAction(
+            incident_id=incident.id,
+            timestamp=now_iso(),
+            tool_name=tool_name,
+            tool_args=json.dumps(args),
+            reasoning=reasoning or f"Step '{step_id}' of skill '{ctx.get('_skill_name')}'",
+            confidence=1.0,  # Skills are deterministic
+            status=ActionStatus.APPROVED,
+            source="skill",
+        )
+        await self._audit.log_action(action)
+
+        result = await self._tools.call(tool_name, args, source=f"skill:{ctx.get('_skill_name')}")
+
+        status = ActionStatus.EXECUTED if result.success else ActionStatus.FAILED
+        await self._audit.update_action_result(incident.id, tool_name, status, result.output)
+
+        return result
 
     async def _exec_classify(
         self, cfg: dict, ctx: dict, skill_name: str
@@ -210,6 +232,7 @@ class SkillRunner:
         actions_taken: list,
         findings: str,
         skill_name: str,
+        incident: Incident,
     ) -> SkillResult:
         # Resolve the switch key (e.g. "{{ classify }}" → "oom")
         switch_key: str = _render(step["switch"], ctx)
@@ -241,7 +264,7 @@ class SkillRunner:
 
         # ── Execute a tool, then optionally verify ────────────────────────
         if "tool" in case:
-            result = await self._exec_tool(case, ctx, "action")
+            result = await self._exec_tool(case, ctx, "action", incident, reasoning=f"Remediation step in skill '{skill_name}'")
             actions_taken.append({
                 "tool": case["tool"],
                 "args": _render(case.get("args", {}), ctx),
@@ -264,9 +287,8 @@ class SkillRunner:
 
             # Optional verification step
             if "verify" in case:
-                verify_result = await self._tools.call(
-                    case["verify"]["tool"],
-                    _render(case["verify"].get("args", {}), ctx),
+                verify_result = await self._exec_tool(
+                    case["verify"], ctx, "verify", incident, reasoning=f"Verification for '{case['tool']}' in skill '{skill_name}'"
                 )
                 ctx["verify"] = verify_result
                 findings += f"\n\n### Verification\n{verify_result.output[:500]}"

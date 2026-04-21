@@ -95,12 +95,12 @@ class ToolRegistry:
             for spec in self._tools.values()
         ]
 
-    async def call(self, name: str, args: dict) -> ToolResult:
+    async def call(self, name: str, args: dict, source: str = "agent") -> ToolResult:
         spec = self._tools.get(name)
         if not spec:
             return ToolResult(success=False, output=f"Unknown tool: {name}")
         try:
-            log.info(f"Calling tool '{name}' with args: {args}")
+            log.info(f"[{source}] Calling tool '{name}' with args: {args}")
             result = await spec.fn(**args)
             return result
         except Exception as e:

@@ -60,7 +60,7 @@ class Claw8sAgent:
         self.registry = tool_registry
         self.audit = audit
         self.approval_callback = approval_callback  # async callable
-        self.skill_runner = SkillRunner(tool_registry, api_key, cfg.provider, cfg.base_url)
+        self.skill_runner = SkillRunner(tool_registry, api_key, audit, cfg.provider, cfg.base_url)
 
     async def run(self, incident: Incident) -> AgentResult:
         # ── Try skills first ──────────────────────────────────────────
@@ -155,10 +155,11 @@ class Claw8sAgent:
                     reasoning=reasoning,
                     confidence=confidence,
                     status=ActionStatus.APPROVED if approved else ActionStatus.REJECTED,
+                    source="soul",
                 ))
 
                 if approved:
-                    result: ToolResult = await self.registry.call(tc.name, tc.args)
+                    result: ToolResult = await self.registry.call(tc.name, tc.args, source="soul")
                     status = ActionStatus.EXECUTED if result.success else ActionStatus.FAILED
                     await self.audit.update_action_result(incident.id, tc.name, status, result.output)
 

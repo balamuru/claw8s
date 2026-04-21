@@ -44,6 +44,7 @@ class AuditAction:
     reasoning: str
     confidence: float
     status: ActionStatus
+    source: str          # "skill" or "soul"
     result: Optional[str] = None
 
 
@@ -85,9 +86,15 @@ class AuditLog:
                 reasoning   TEXT NOT NULL,
                 confidence  REAL NOT NULL,
                 status      TEXT NOT NULL,
+                source      TEXT NOT NULL DEFAULT 'soul',
                 result      TEXT
             )
         """)
+        # Migration: ensure 'source' exists if table was already created
+        try:
+            await self._db.execute("ALTER TABLE actions ADD COLUMN source TEXT NOT NULL DEFAULT 'soul'")
+        except:
+            pass
         await self._db.commit()
 
     async def log_event(self, event: AuditEvent):
@@ -103,12 +110,12 @@ class AuditLog:
 
     async def log_action(self, action: AuditAction):
         await self._db.execute("""
-            INSERT INTO actions (incident_id, timestamp, tool_name, tool_args, reasoning, confidence, status, result)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO actions (incident_id, timestamp, tool_name, tool_args, reasoning, confidence, status, source, result)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             action.incident_id, action.timestamp, action.tool_name,
             action.tool_args, action.reasoning, action.confidence,
-            action.status.value, action.result
+            action.status.value, action.source, action.result
         ))
         await self._db.commit()
 
