@@ -77,6 +77,44 @@ A non-blocking agentic loop that uses multi-turn reasoning. It is the only compo
 ### 🏛️ Relational Memory: The Auditor
 A SQLite database running in **WAL mode** for high concurrency. It persists every turn, tool call, and result, providing the "Short-Term Memory" needed for context-aware commands.
 
+### 🚥 Additional Organs:
+*   **Asyncio Queue**: The "Spinal Cord" that decouples high-frequency watcher events from the relatively slow remediation and approval process.
+*   **Manager (Main Loop)**: The orchestrator that manages incident state, runs the verification checks, and determines when an issue is truly "Resolved."
+*   **Skills Runner**: A deterministic executor that parses YAML runbooks and executes investigation steps with zero LLM latency.
+*   **Hardened Tools**: A strictly-typed registry of `kubectl` operations with built-in safety timeouts and namespace protection.
+*   **Telegram Bot Controller**: The bridge to the human-in-the-loop, handling 64-byte callback compression and smart reconfirm logic.
+
+### 🛡️ The Life Cycle of an Incident
+
+To understand how Claw8s actually "thinks," we have to look at the sequence of a remediation:
+
+```mermaid
+sequenceDiagram
+    participant K8s as Cluster
+    participant W as Watcher
+    participant M as Manager
+    participant S as Skills (YAML)
+    participant Soul as Agentic Loop
+    participant T as Telegram
+    participant H as Human
+
+    K8s->>W: Event/Stale Pod detected
+    W->>M: Push Incident
+    M->>S: Match Skill?
+    alt Skill Matches
+        S->>M: Execution Path
+    else No Skill Match
+        M->>Soul: Escalate to Reasoning
+        Soul->>K8s: Run Diagnostics
+        Soul->>T: Request Approval
+        T->>H: Alert + Buttons
+        H->>T: Approve!
+        T->>K8s: Execute Mutation
+    end
+    M->>K8s: Verify Steady State
+    M->>T: Incident Resolved ✅
+```
+
 ---
 
 ## Battle Scars: Hard-Won Lessons
