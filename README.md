@@ -88,12 +88,14 @@ pip install -e .
 ```
 
 ### 2. Set up Secrets
+See [Getting a Telegram Bot Token](#getting-a-telegram-bot-token) for more info.
 ```bash
 cp .env.example .env
 # Edit .env with your ANTHROPIC_API_KEY and TELEGRAM_BOT_TOKEN
 ```
 
 ### 3. Configure
+See [Getting a Telegram Bot Token](#getting-a-telegram-bot-token) for more info.
 ```bash
 cp config.yaml.example config.yaml
 # Edit config.yaml — at minimum set your Telegram user ID
@@ -109,7 +111,9 @@ python main.py --config config.yaml
 1. Message [@BotFather](https://t.me/BotFather) on Telegram
 2. `/newbot` → follow prompts → copy the token
 3. Message [@userinfobot](https://t.me/userinfobot) (just click "Start") to find your user ID. It will reply with your numeric `Id`.
-4. Put both in your `.env` and `config.yaml`
+4. Add the token to your `.env` file as `TELEGRAM_BOT_TOKEN`.
+5. Add your user ID to `config.yaml` as `telegram.allowed_user_ids`.
+6. **Activate the bot**: Open your bot in Telegram and send `/start`. This registers your chat ID so Claw8s knows where to send alerts.
 
 ---
 
@@ -160,11 +164,11 @@ agent:
 ```
 
 ### Google Gemini
-Using the OpenAI-compatible endpoint.
+Using the OpenAI-compatible endpoint. Note that model names should be the pure ID (e.g., `gemini-2.5-flash`).
 ```yaml
 agent:
   provider: openai
-  model: gemini-1.5-pro
+  model: gemini-2.5-flash
   base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
 ```
 

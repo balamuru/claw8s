@@ -36,19 +36,19 @@ registry = ToolRegistry()
         "properties": {
             "namespace": {"type": "string", "description": "Kubernetes namespace"},
             "pod_name": {"type": "string", "description": "Pod name"},
-            "container": {"type": "string", "description": "Container name (optional)", "default": ""},
+            "container_name": {"type": "string", "description": "Container name (optional)", "default": ""},
             "tail_lines": {"type": "integer", "description": "Number of log lines to fetch", "default": 50},
         },
         "required": ["namespace", "pod_name"],
     },
     is_destructive=False,
 )
-async def get_pod_logs(namespace: str, pod_name: str, container: str = "", tail_lines: int = 50) -> ToolResult:
+async def get_pod_logs(namespace: str, pod_name: str, container_name: str = "", tail_lines: int = 50) -> ToolResult:
     try:
         v1 = k8s_client.CoreV1Api()
         kwargs = {"name": pod_name, "namespace": namespace, "tail_lines": tail_lines, "timestamps": True}
-        if container:
-            kwargs["container"] = container
+        if container_name:
+            kwargs["container"] = container_name
         logs = await asyncio.to_thread(v1.read_namespaced_pod_log, **kwargs)
         return ToolResult(success=True, output=logs or "(no logs)")
     except Exception as e:
@@ -200,11 +200,11 @@ async def get_node_status() -> ToolResult:
             "deployment_name": {"type": "string"},
             "reason": {"type": "string", "description": "Human-readable reason for the restart"},
         },
-        "required": ["namespace", "deployment_name", "reason"],
+        "required": ["namespace", "deployment_name"],
     },
     is_destructive=True,
 )
-async def restart_deployment(namespace: str, deployment_name: str, reason: str) -> ToolResult:
+async def restart_deployment(namespace: str, deployment_name: str, reason: str = "Automated remediation") -> ToolResult:
     # Safety: refuse to touch kube-system unless explicitly named
     if namespace == "kube-system":
         return ToolResult(success=False, output="Refusing to restart deployments in kube-system automatically.")
@@ -242,11 +242,11 @@ async def restart_deployment(namespace: str, deployment_name: str, reason: str) 
             "replicas": {"type": "integer", "description": "Target replica count (0–20)"},
             "reason": {"type": "string"},
         },
-        "required": ["namespace", "deployment_name", "replicas", "reason"],
+        "required": ["namespace", "deployment_name", "replicas"],
     },
     is_destructive=True,
 )
-async def scale_deployment(namespace: str, deployment_name: str, replicas: int, reason: str) -> ToolResult:
+async def scale_deployment(namespace: str, deployment_name: str, replicas: int, reason: str = "Automated scaling") -> ToolResult:
     if not 0 <= replicas <= 20:
         return ToolResult(success=False, output=f"Replica count {replicas} out of allowed range (0–20).")
     if namespace == "kube-system":
@@ -275,11 +275,11 @@ async def scale_deployment(namespace: str, deployment_name: str, replicas: int, 
             "pod_name": {"type": "string"},
             "reason": {"type": "string"},
         },
-        "required": ["namespace", "pod_name", "reason"],
+        "required": ["namespace", "pod_name"],
     },
     is_destructive=True,
 )
-async def delete_pod(namespace: str, pod_name: str, reason: str) -> ToolResult:
+async def delete_pod(namespace: str, pod_name: str, reason: str = "Automated pod deletion") -> ToolResult:
     if namespace == "kube-system":
         return ToolResult(success=False, output="Refusing to delete pods in kube-system automatically.")
     try:
@@ -298,11 +298,11 @@ async def delete_pod(namespace: str, pod_name: str, reason: str) -> ToolResult:
             "node_name": {"type": "string"},
             "reason": {"type": "string"},
         },
-        "required": ["node_name", "reason"],
+        "required": ["node_name"],
     },
     is_destructive=True,
 )
-async def cordon_node(node_name: str, reason: str) -> ToolResult:
+async def cordon_node(node_name: str, reason: str = "Automated node cordon") -> ToolResult:
     try:
         v1 = k8s_client.CoreV1Api()
         patch = {

@@ -15,7 +15,12 @@ watcher:
 agent:
   provider: anthropic             # "anthropic" or "openai"
   model: claude-opus-4-5          # or claude-haiku-4-5 for faster/cheaper
-  # base_url: ""                  # optional override (for Ollama, Groq, etc.)
+  # base_url: ""                  # optional override (for Ollama, Groq, Gemini, etc.)
+  
+  # Example for Google Gemini (via OpenAI-compatible endpoint):
+  # provider: openai
+  # model: gemini-2.5-flash
+  # base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
   max_tokens: 4096
   # Actions with confidence below this % will be sent to Telegram for approval
   auto_remediate_threshold: 0.85

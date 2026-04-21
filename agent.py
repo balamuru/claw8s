@@ -16,6 +16,7 @@ Flow:
 import json
 import logging
 from dataclasses import dataclass
+from typing import Optional
 import anthropic
 
 import llm
@@ -208,8 +209,12 @@ class Claw8sAgent:
         """Try to extract a confidence value from reasoning text (e.g. '0.9' or '90%')."""
         import re
         # Look for patterns like "confidence: 0.85" or "confidence: 85%"
-        m = re.search(r"confidence[:\s]+([0-9.]+)%?", text, re.IGNORECASE)
+        # Refined regex to avoid capturing trailing punctuation like "0.70."
+        m = re.search(r"confidence[:\s]+([0-9]*\.?[0-9]+)%?", text, re.IGNORECASE)
         if m:
-            val = float(m.group(1))
-            return val / 100 if val > 1 else val
+            try:
+                val = float(m.group(1))
+                return val / 100 if val > 1 else val
+            except ValueError:
+                pass
         return 0.75  # default if not found

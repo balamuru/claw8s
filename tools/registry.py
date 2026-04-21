@@ -81,6 +81,20 @@ class ToolRegistry:
             for spec in self._tools.values()
         ]
 
+    def as_openai_tools(self) -> list[dict]:
+        """Return tool definitions in OpenAI function-calling format."""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": spec.name,
+                    "description": spec.description,
+                    "parameters": spec.parameters,
+                },
+            }
+            for spec in self._tools.values()
+        ]
+
     async def call(self, name: str, args: dict) -> ToolResult:
         spec = self._tools.get(name)
         if not spec:
