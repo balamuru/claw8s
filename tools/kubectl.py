@@ -50,7 +50,8 @@ async def get_pod_logs(**kwargs) -> ToolResult:
     name = kwargs.get("name") or kwargs.get("pod_name") or kwargs.get("pod")
     namespace = kwargs.get("namespace", "default")
     container_name = kwargs.get("container_name") or kwargs.get("container") or ""
-    tail_lines = int(kwargs.get("tail_lines", 50))
+    # Safety: cap tail_lines at 500 to prevent LLM overwhelm
+    tail_lines = min(int(kwargs.get("tail_lines", 50)), 500)
 
     if not name:
         return ToolResult(success=False, output="Error: 'name' (pod name) is required.")
@@ -62,8 +63,15 @@ async def get_pod_logs(**kwargs) -> ToolResult:
         k8s_kwargs = {"name": name, "namespace": namespace, "tail_lines": tail_lines, "timestamps": True}
         if container_name:
             k8s_kwargs["container"] = container_name
-        logs = await asyncio.to_thread(v1.read_namespaced_pod_log, **k8s_kwargs)
+        
+        # Hard timeout for log retrieval (prevents agent hang)
+        logs = await asyncio.wait_for(
+            asyncio.to_thread(v1.read_namespaced_pod_log, **k8s_kwargs),
+            timeout=10.0
+        )
         return ToolResult(success=True, output=logs or "(no logs)")
+    except asyncio.TimeoutError:
+        return ToolResult(success=False, output="Error: Log retrieval timed out after 10s.")
     except Exception as e:
         return ToolResult(success=False, output=str(e))
 

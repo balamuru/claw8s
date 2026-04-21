@@ -95,10 +95,22 @@ class KubernetesWatcher:
                     
                     reason = None
                     message = ""
+                    
+                    # Check Pod Phase
                     if pod.status.phase == "Pending":
                         reason = "FailedScheduling"
                         message = "Pod stuck in Pending state (proactive scan)"
                     
+                    # Check Conditions (e.g. Unschedulable)
+                    for cond in (pod.status.conditions or []):
+                        if cond.type == "PodScheduled" and cond.status == "False":
+                            reason = "FailedScheduling"
+                            message = f"Pod unschedulable: {cond.message} (proactive scan)"
+                        elif cond.type == "Ready" and cond.status == "False" and cond.reason == "ContainersNotReady":
+                             # This might be normal during startup, only flag if older than 2m
+                             pass
+
+                    # Check Container Statuses
                     for cs in (pod.status.container_statuses or []):
                         if cs.state.waiting:
                             if cs.state.waiting.reason in ["CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull"]:
@@ -106,6 +118,7 @@ class KubernetesWatcher:
                                 message = f"Container {cs.name} stuck in {reason} (proactive scan)"
                     
                     if reason:
+                        log.info(f"Proactive scanner detected issue: {reason} on {pod.metadata.name}")
                         incident = Incident(
                             id=str(uuid.uuid4()),
                             timestamp=datetime.now(timezone.utc).isoformat(),
@@ -119,10 +132,12 @@ class KubernetesWatcher:
                         )
                         # Use unified queue method (handles debounce)
                         self._queue_incident(incident, self.loop)
+                
+                log.debug("Proactive stale pod scanner sweep complete.")
                         
             except Exception as e:
                 log.error(f"Stale pod scanner error: {e}")
-            await asyncio.sleep(60)
+            await asyncio.sleep(30) # Increase frequency to 30s
 
     def stop(self):
         self._stop_event.set()
@@ -200,15 +215,24 @@ class KubernetesWatcher:
             log.error(f"Error processing event: {e}", exc_info=True)
 
     def _queue_incident(self, incident: Incident, loop: asyncio.AbstractEventLoop):
-        """Unified method to queue incidents with debounce check."""
-        debounce_key = (incident.namespace, incident.object_kind, incident.object_name, incident.reason)
+        """Unified method to queue incidents with controller-aware debounce check."""
+        # Try to find a parent owner to group incidents (prevents flooding on scaled deployments)
+        group_key = incident.object_name
+        if incident.object_kind == "Pod" and "-" in incident.object_name:
+            # Simple heuristic: use the prefix before the last two hashes
+            parts = incident.object_name.split("-")
+            if len(parts) >= 3:
+                group_key = "-".join(parts[:-2]) # e.g. web-app-deployment from web-app-deployment-558-8kr2c
+
+        debounce_key = (incident.namespace, incident.object_kind, group_key, incident.reason)
         now = datetime.now(timezone.utc).timestamp()
         
         with self._lock:
             last = self._debounce.get(debounce_key, 0)
             if now - last < self.cfg.debounce_seconds:
+                log.info(f"Incident suppressed by group debounce: [{incident.reason}] {incident.object_kind}/{group_key}")
                 return
             self._debounce[debounce_key] = now
 
-        log.info(f"Incident queued: [{incident.reason}] {incident.object_kind}/{incident.object_name} in {incident.namespace}")
+        log.info(f"Incident queued: [{incident.reason}] {incident.object_kind}/{group_key} (grouped) in {incident.namespace}")
         loop.call_soon_threadsafe(self.queue.put_nowait, incident)

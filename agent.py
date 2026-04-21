@@ -63,15 +63,17 @@ class Claw8sAgent:
         self.skill_runner = SkillRunner(tool_registry, api_key, audit, cfg.provider, cfg.base_url, cfg.model)
 
     async def run(self, incident: Incident) -> AgentResult:
+        log.info(f"Agent starting run for incident {incident.id[:8]}")
         # ── Try skills first ──────────────────────────────────────────
         skill_findings = ""
+        actions_taken = []
         skill_def = skill_registry.get(incident.reason)
         if skill_def:
             log.info(f"Matching skill found for '{incident.reason}': {skill_def.get('name')}")
             skill_res: SkillResult = await self.skill_runner.run(skill_def, incident)
             
             if not skill_res.inconclusive:
-                # Skill reached a definite conclusion (solved or needs human)
+                log.info(f"Skill '{skill_def.get('name')}' resolved incident {incident.id[:8]}")
                 return AgentResult(
                     incident_id=incident.id,
                     summary=skill_res.summary or skill_res.human_message,
@@ -85,6 +87,7 @@ class Claw8sAgent:
             actions_taken = skill_res.actions_taken
             log.info(f"Skill '{skill_def.get('name')}' was inconclusive. Falling back to agent loop.")
 
+        log.info(f"Constructing agent context and fetching history for {incident.id[:8]}")
         messages = [
             {
                 "role": "user",
@@ -93,7 +96,6 @@ class Claw8sAgent:
         ]
 
         tools = self.backend.get_tools(self.registry)
-        actions_taken = []
         tool_call_count = 0
         needs_human = False
         human_message = None
@@ -102,6 +104,7 @@ class Claw8sAgent:
         history = await self.audit.get_recent_object_actions(
             incident.namespace, incident.object_kind, incident.object_name
         )
+        log.info(f"History fetched ({len(history)} items). Sending first chat turn to LLM.")
 
         # Start conversation
         turn = await self.backend.chat(
@@ -111,6 +114,7 @@ class Claw8sAgent:
             model=self.cfg.model,
             max_tokens=self.cfg.max_tokens,
         )
+        log.info(f"First LLM turn complete. Text response: {bool(turn.text)}, Tool calls: {len(turn.tool_calls)}")
 
         while True:
             if turn.finished:

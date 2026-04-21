@@ -114,9 +114,12 @@ async def main(config_path: str = "config.yaml"):
     async def process_incidents():
         while True:
             incident: Incident = await incident_queue.get()
+            log.info(f"Incident dequeued: {incident.id[:8]} [{incident.reason}] {incident.object_name}")
             log.info(f"Processing incident: {incident.id} [{incident.reason}] {incident.object_name}")
 
             # Log the raw event
+            log.info(f"Pre-flight: verifying incident {incident.id[:8]} integrity...")
+            log.info(f"Logging incident {incident.id[:8]} to audit database...")
             await audit.log_event(AuditEvent(
                 incident_id=incident.id,
                 timestamp=incident.timestamp,
@@ -127,6 +130,7 @@ async def main(config_path: str = "config.yaml"):
                 message=incident.message,
                 raw_event=json.dumps(incident.raw),
             ))
+            log.info(f"Audit log complete for {incident.id[:8]}. Handing off to agent...")
 
             # Alert: incident detected
             if bot:
