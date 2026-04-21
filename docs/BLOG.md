@@ -51,20 +51,31 @@ It doesn't just run a command; it loops:
 
 ---
 
-## The Component Layout
+## The Component Layout: Organs of the Agent
 
-Claw8s is built with a highly decoupled architecture:
+Claw8s is built as a high-performance, asynchronous event processor. Here is how the "Organs" of the system interact:
 
-```bash
-$ tree -L 1
-.
-├── agent.py      # The "Soul" Reasoning Loop
-├── watcher.py    # Sensory Cortex (K8s Events + Proactive Scanning)
-├── audit.py      # Relational Memory (SQLite Audit Log)
-├── bot/          # Telegram Mobile Console
-├── skills/       # Deterministic Runbook Registry
-└── tools/        # Hardened Kubectl Toolbelt
+```mermaid
+graph TD
+    Watcher[K8s Watcher + Stale Scanner] -->|Incident| Queue[Asyncio Queue]
+    Queue -->|Process| Manager[Main Loop]
+    Manager -->|Incident| Skills[Skill Runner - YAML]
+    Skills -->|Inconclusive| Soul[The Soul - Agentic Loop]
+    Soul -->|Historical Context| Audit[(Audit Log - SQLite)]
+    Soul -->|Remediation| Tools[Kubectl Tools]
+    Tools -->|Verification Loop| Manager
+    Manager -->|Alert/Approval| Telegram[Telegram Bot]
+    Telegram -->|Smart Reconfirm| Tools
 ```
+
+### 📡 Sensory Cortex: The Watcher
+Maintains a dual-path input stream. It consumes the live K8s Event API for sudden failures while running a proactive scanner every 30s to find "silent" zombies (e.g., pods stuck in `Pending` with no events).
+
+### 🧠 Reasoning Loop: The Soul
+A non-blocking agentic loop that uses multi-turn reasoning. It is the only component that can read the **Audit Log** to understand if a remediation has failed in the past, preventing "infinite restart loops."
+
+### 🏛️ Relational Memory: The Auditor
+A SQLite database running in **WAL mode** for high concurrency. It persists every turn, tool call, and result, providing the "Short-Term Memory" needed for context-aware commands.
 
 ---
 
@@ -104,6 +115,30 @@ web-app-deployment-6b47d8cc57-68fpb   1/1     Running   0          25m
 web-app-deployment-6b47d8cc57-lr5sb   1/1     Running   0          25m
 web-app-deployment-6b47d8cc57-sb6pb   1/1     Running   0          25m
 ```
+
+---
+
+## 🛠️ The Launch Sequence
+
+Getting Claw8s online takes less than 2 minutes.
+
+### 1. Configuration (`config.yaml`)
+You can tune the agent's autonomy and monitoring focus:
+```yaml
+watcher:
+  debounce_seconds: 30
+agent:
+  provider: openai
+  model: gemini-1.5-flash
+  auto_remediate_threshold: 0.85
+```
+
+### 2. Ignition
+1. Install dependencies: `pip install -e .`
+2. Set your `TELEGRAM_BOT_TOKEN` in `.env`.
+3. Launch: `python main.py --config config.yaml`
+
+For the full technical deep-dive and advanced deployment options, check out the **[Official README](https://github.com/balamuru/claw8s/blob/main/README.md)**.
 
 ---
 
