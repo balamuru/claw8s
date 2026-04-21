@@ -14,48 +14,46 @@ graph TD
     Skills -->|Inconclusive| Soul[The Soul - Agentic Loop]
     Soul -->|Historical Context| Audit[(Audit Log - SQLite)]
     Soul -->|Remediation| Tools[Kubectl Tools]
-    Tools -->|Result| Manager
-    Manager -->|Alert| Telegram[Telegram Bot]
+    Tools -->|Verification Loop| Manager
+    Manager -->|Alert/Approval| Telegram[Telegram Bot]
+    Telegram -->|Smart Reconfirm| Tools
 ```
 
-## 2. The Hybrid Reasoning Model
+## 2. Concurrent Boot Sequence
+
+Claw8s uses a **Concurrent Startup Architecture** to ensure high availability:
+*   **Background Boot**: The Telegram Bot is spawned as an independent background task. This prevents the entire system from hanging if the Telegram API is slow or unreachable.
+*   **Instant Monitoring**: The Watcher and Incident Processor come online immediately, regardless of external service status.
+
+## 3. The Hybrid Reasoning Model
 
 ### Tier 1: Skills (Runbooks)
 Skills are the first line of defense. They are deterministic procedures defined in YAML.
 *   **Goal**: Solve common, well-understood problems instantly without using expensive LLM reasoning.
-*   **Remediation**: Skills can now take direct action and recycle pods.
 
 ### Tier 2: The Soul (Agentic Reasoning)
 If a Skill is "Inconclusive," the incident is escalated to the Soul.
-*   **Goal**: Solve novel or complex problems using a multi-turn tool-calling loop.
-*   **Memory Awareness**: The Soul queries the Audit Log for the last 2 hours of actions. It will never repeat a failing strategy.
-*   **Safety Governors**: All tools are protected by strict timeouts (e.g., 10s log retrieval limit) to prevent the agent from hanging on slow API responses.
+*   **Verification Policy (Wait for Rollout)**: The Soul is strictly prohibited from declaring an incident "Resolved" until it has confirmed via live probes that the new pods are `Ready` and `Available`.
+*   **Gemini Protocol Guard**: Multi-turn history is automatically sanitized to ensure compliance with strict LLM API schemas.
 
-## 3. Resilience & Anti-Flooding
+## 4. Resilience & Anti-Flooding
 
 ### Controller-Aware Debouncing
-Claw8s prevents "Incident Storms" by grouping pod-level failures at the parent level (Deployment or ReplicaSet). If 100 pods fail for the same reason, the agent receives a single, actionable incident for the entire group.
+Claw8s prevents "Incident Storms" by grouping pod-level failures at the parent level (Deployment or ReplicaSet).
 
 ### Proactive Condition Scanning
-The system doesn't just wait for events. It sweeps the cluster every 30 seconds, looking specifically at **Pod Conditions** (e.g., `PodScheduled=False`) to catch "zombie" pods that are stuck before their containers even start.
+The system sweeps the cluster every 30 seconds, looking for "zombie" pods stuck in conditions like `PodScheduled=False`.
 
-## 4. Data Persistence & Analytics
+## 5. Observability & Control
 
-### Audit Log (SQLite)
-Every thought, event, and tool call is recorded.
-*   **Prevention**: Used by the Soul to prevent remediation loops.
-*   **Observability**: Powers the Dashboard and Telegram alerts.
-*   **Retention**: Automatically purges data older than 30 days to stay lean.
+### Smart Reconfirm Loop
+The Telegram Bot features an intelligent **Reconfirm** button. When clicked, it triggers a live Kubernetes health probe to verify if the issue still exists (e.g., checking `ready_replicas`). This allows the system to automatically recognize manual fixes.
 
-### Integrated Dashboard
-A FastAPI server integrated directly into the main process.
-*   **Real-time List**: A chronological, auto-refreshing list of incidents.
-*   **Frequency Analytics**: A histogram showing incident spikes over time (15m, 1h, 1d buckets).
-*   **Direct Control**: Includes a "Clear History" feature for cluster operators.
+### Namespace-Aware Status
+The `/status` and `/refresh` commands provide a categorized breakdown of pod health by namespace, filtering out system noise while highlighting unhealthy resources cluster-wide.
 
-## 5. Safety Controls
+## 6. Safety Controls
 
-*   **Namespace Protection**: Mutating tools refuse to touch `kube-system` unless explicitly allowed.
-*   **Threshold-Based Autonomy**: Actions with confidence < 85% require human approval via Telegram.
-*   **Resource Capping**: Scaling is hardware-limited (e.g., max 20 replicas) to prevent runaway costs.
-*   **Tool Aliasing**: Multi-parameter aliasing ensures the agent doesn't fail due to minor nomenclature errors.
+*   **Namespace Protection**: Mutating tools refuse to touch `kube-system` autonomously.
+*   **Threshold-Based Autonomy**: Actions with confidence < 85% require human approval.
+*   **64-Byte Callback Compression**: Telegram button data is hashed and mapped to internal memory to stay within strict API limits.

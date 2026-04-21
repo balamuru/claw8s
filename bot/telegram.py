@@ -76,7 +76,17 @@ class TelegramBot:
         print("[BOT] Starting Telegram application...")
         await self._app.start()
         print("[BOT] Starting Telegram polling...")
-        await self._app.updater.start_polling(drop_pending_updates=True)
+        # Sync command menu to clear ghost commands
+        from telegram import BotCommand
+        commands = [
+            BotCommand("status", "Current cluster health summary"),
+            BotCommand("refresh", "Force a live cluster health scan"),
+            BotCommand("history", "View last 10 incidents"),
+            BotCommand("help", "Show available commands"),
+        ]
+        await self._app.bot.set_my_commands(commands)
+        print("[BOT] Command menu synchronized.")
+
         log.info("Telegram bot started")
         print("[BOT] Telegram bot is fully online and listening.")
 
@@ -112,10 +122,15 @@ class TelegramBot:
             log.warning("No primary chat ID — auto-rejecting approval request")
             return False
 
-        callback_id = f"{incident_id}:{tool_name}"
+        # We use a shorter callback_id to stay under Telegram's 64-byte limit
+        # Format: action:short_id:tool_suffix
+        short_id = incident_id[:8]
+        callback_id = f"{short_id}:{tool_name[:10]}"
+        
         future: asyncio.Future = asyncio.get_event_loop().create_future()
         self._pending[callback_id] = {
             "future": future,
+            "incident_id": incident_id,
             "tool_name": tool_name,
             "tool_args": tool_args
         }
@@ -252,7 +267,7 @@ class TelegramBot:
             result = "Issue persists. Please approve or reject."
             if self.reconfirm_callback:
                 result = await self.reconfirm_callback(
-                    incident_id, 
+                    pending["incident_id"], 
                     pending["tool_name"], 
                     pending["tool_args"]
                 )

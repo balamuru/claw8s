@@ -24,9 +24,28 @@ graph TD
     Skills -->|Inconclusive| Soul[The Soul - Agentic Loop]
     Soul -->|Historical Context| Audit[(Audit Log - SQLite)]
     Soul -->|Remediation| Tools[Kubectl Tools]
-    Tools -->|Result| Manager
-    Manager -->|Alert| Telegram[Telegram Bot]
+    Tools -->|Verification Loop| Manager
+    Manager -->|Alert/Approval| Telegram[Telegram Bot]
+    Telegram -->|Smart Reconfirm| Tools
 ```
+
+---
+
+## 🛡️ Resilience & Verification
+
+*   **Smart Reconfirm**: Every approval request includes a **Reconfirm** button that triggers a live Kubernetes health probe to verify if manual intervention has already fixed the issue.
+*   **Wait for Rollout**: Mandatory verification policy—incidents are only marked "Resolved" after new pods are confirmed `Ready` and `Available`.
+*   **Grouped Debouncing**: Prevents alert flooding by grouping pod incidents at the Deployment level.
+*   **Proactive Scanning**: Sweeps for Scheduler-level failures every 30s.
+
+---
+
+## 📲 Telegram Command Center
+
+Claw8s provides a powerful mobile interface for cluster management:
+*   `/status` & `/refresh`: Get a namespace-aware breakdown of cluster health with live timestamps.
+*   `/history`: View the last 10 incidents and their resolution paths.
+*   **Interactive Approvals**: Review reasoning and confidence scores before approving destructive actions.
 
 ---
 
@@ -36,15 +55,6 @@ graph TD
     Claw8s first matches incidents against **Skills** in `skills/`. Skills are YAML-defined runbooks that execute fixed investigation steps. They are **fast, cheap, and predictable**.
 2.  **Tier 2: The Soul (Reasoning Loop)**  
     If no skill matches or is inconclusive, the **Agentic Loop** takes over. Guided by the **Soul** (`prompts/soul.md`), it uses open-ended tool calling and **Historical Memory** to resolve novel incidents.
-
----
-
-## 🛡️ Resilience Features
-
-*   **Grouped Debouncing**: Prevents alert flooding by grouping pod incidents at the Deployment/Controller level.
-*   **Proactive Scanning**: Sweeps the cluster every 30s for Scheduler-level failures (e.g., Unschedulable pods).
-*   **Safety Governors**: Built-in 10s timeouts on log retrieval and 20s database timeouts to prevent agent hangs.
-*   **Integrated Dashboard**: A real-time analytics suite served directly from the main application.
 
 ---
 
