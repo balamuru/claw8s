@@ -171,6 +171,31 @@ async def get_deployment_status(name: Optional[str] = None, namespace: str = "de
 
 
 @registry.tool(
+    name="get_deployment",
+    description="Fetch the full definition of a Deployment. Use to inspect environment variables, images, and config.",
+    parameters={
+        "properties": {
+            "namespace": {"type": "string", "default": "default"},
+            "name": {"type": "string"},
+        },
+        "required": ["name"],
+    },
+    is_destructive=False,
+)
+async def get_deployment(name: Optional[str] = None, namespace: str = "default") -> ToolResult:
+    if not name:
+        return ToolResult(success=False, output="Error: 'name' (deployment name) is required.")
+    try:
+        apps_v1 = k8s_client.AppsV1Api()
+        d = await asyncio.to_thread(apps_v1.read_namespaced_deployment, name=name, namespace=namespace)
+        # Convert to dict and clean up for LLM readability
+        d_dict = k8s_client.ApiClient().sanitize_for_serialization(d)
+        return ToolResult(success=True, output=json.dumps(d_dict, indent=2))
+    except Exception as e:
+        return ToolResult(success=False, output=str(e))
+
+
+@registry.tool(
     name="get_node_status",
     description="Get status of all cluster nodes.",
     parameters={"properties": {}, "required": []},
