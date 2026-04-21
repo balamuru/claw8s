@@ -414,7 +414,7 @@ async def scale_deployment(**kwargs) -> ToolResult:
 )
 async def patch_deployment(**kwargs) -> ToolResult:
     name = kwargs.get("name") or kwargs.get("deployment_name") or kwargs.get("deployment")
-    patch = kwargs.get("patch")
+    patch = kwargs.get("patch") or kwargs.get("body") # Hallucination-proof: LLMs often use 'body'
     namespace = kwargs.get("namespace", "default")
     reason = kwargs.get("reason", "Automated patch")
 

@@ -146,7 +146,7 @@ class Claw8sAgent:
                             needs_human = True
                             human_message = f"Action `{tc.name}` on `{incident.object_name}` needs approval (confidence={confidence:.0%}).\n\nReasoning: {reasoning}"
 
-                # Log and execute
+                # Log the action with tokens
                 await self.audit.log_action(AuditAction(
                     incident_id=incident.id,
                     timestamp=now_iso(),
@@ -156,6 +156,8 @@ class Claw8sAgent:
                     confidence=confidence,
                     status=ActionStatus.APPROVED if approved else ActionStatus.REJECTED,
                     source="soul",
+                    input_tokens=turn.input_tokens // len(turn.tool_calls) if turn.tool_calls else turn.input_tokens,
+                    output_tokens=turn.output_tokens // len(turn.tool_calls) if turn.tool_calls else turn.output_tokens,
                 ))
 
                 if approved:

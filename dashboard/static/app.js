@@ -30,13 +30,15 @@ function renderIncidents(incidents) {
                 <p class="meta">${inc.object_kind}/${inc.object_name}</p>
                 <p class="meta">Namespace: ${inc.namespace}</p>
             </div>
-            <div class="card-footer">
-                <span class="meta">${new Date(inc.timestamp).toLocaleTimeString()}</span>
-            </div>
+                <div class="card-footer">
+                    <span class="meta">${new Date(inc.timestamp).toLocaleTimeString()}</span>
+                    <span class="token-count">🎟️ ${inc.total_tokens.toLocaleString()} tokens</span>
+                </div>
         `;
         card.onclick = () => showDetail(inc.incident_id);
         container.appendChild(card);
     });
+}
 
 async function showDetail(incidentId) {
     detailPanel.classList.remove('hidden');
@@ -66,10 +68,15 @@ function renderActions(actions) {
             <div class="timeline-tool">Called <code>${action.tool}</code></div>
             <div class="timeline-reason">${action.reasoning}</div>
             <pre>${JSON.stringify(JSON.parse(action.args), null, 2)}</pre>
+            <div class="token-detail">
+                <span>In: ${action.input_tokens}</span>
+                <span>Out: ${action.output_tokens}</span>
+            </div>
             ${action.result ? `<div class="meta">Result: ${action.result}</div>` : ''}
         `;
         actionHistory.appendChild(item);
     });
+}
 
 closeBtn.onclick = () => detailPanel.classList.add('hidden');
 refreshBtn.onclick = fetchIncidents;

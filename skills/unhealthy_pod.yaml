@@ -20,7 +20,7 @@ steps:
     llm_classify:
       inputs: [describe, get_spec]
       categories:
-        probe: "Probe is failing due to an incorrect path, port, or timeout (Look for 'Readiness probe failed' or 'Liveness probe failed')"
+        probe: "Probe is failing due to an incorrect path (e.g., 404 on /healthz), port, or timeout. Check if the path exists in the container logs or image defaults."
         startup: "Application is taking too long to start (Look for probe failures during initial startup period)"
         resource: "Application is unresponsive due to CPU/Memory pressure (Look for high latency or timeouts in probe failures)"
         success: "The pod is now healthy"
@@ -30,7 +30,7 @@ steps:
     switch: "{{ classify }}"
     cases:
       probe:
-        escalate: "Readiness/Liveness probe misconfiguration detected on `{{ incident.object_name }}`. Recommend reviewing the deployment spec and fixing the probe path or port."
+        inconclusive: true # Let the Soul investigate and potentially fix probe paths/ports
       startup:
         summary: "Pod `{{ incident.object_name }}` is still starting up. Monitoring for recovery."
       resource:

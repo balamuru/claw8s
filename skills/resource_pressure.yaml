@@ -33,7 +33,7 @@ steps:
       oom_killed:
         escalate: "Pod `{{ incident.object_name }}` was OOMKilled. I recommend increasing the memory limits in the deployment spec. Would you like me to try a 25% increase?"
       insufficient_resources:
-        escalate: "Pod `{{ incident.object_name }}` cannot be scheduled due to insufficient resources. Recommend checking cluster capacity or reducing requests for this deployment."
+        inconclusive: true # Let the Soul handle complex scheduling issues like impossible resource requests
       potential_leak:
         summary: "Resource usage for `{{ incident.object_name }}` is high but within limits. Monitoring for memory leaks."
       unknown:

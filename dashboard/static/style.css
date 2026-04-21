@@ -126,6 +126,27 @@ header {
     color: var(--text-dim);
 }
 
+.card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 1rem;
+}
+
+.token-count {
+    font-size: 0.75rem;
+    color: var(--accent-blue);
+    font-weight: 600;
+}
+
+.token-detail {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    margin-top: 0.5rem;
+    display: flex;
+    gap: 1rem;
+}
+
 .source-tag {
     font-size: 0.7rem;
     color: var(--accent-purple);

@@ -39,6 +39,8 @@ class LLMTurn:
     text: str | None          # assistant's text (may be None if only tool calls)
     tool_calls: list[ToolCall]
     finished: bool            # True = model is done, no more tool calls expected
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 # ── Abstract base ─────────────────────────────────────────────────────────────
@@ -124,7 +126,13 @@ class AnthropicBackend(LLMBackend):
             if getattr(b, "type", None) == "tool_use"
         ]
         finished = response.stop_reason in ("end_turn", "stop_sequence") and not tool_calls
-        return LLMTurn(text=text, tool_calls=tool_calls, finished=finished)
+        return LLMTurn(
+            text=text, 
+            tool_calls=tool_calls, 
+            finished=finished,
+            input_tokens=response.usage.input_tokens,
+            output_tokens=response.usage.output_tokens
+        )
 
     def get_tools(self, registry) -> list[dict]:
         return registry.as_anthropic_tools()
@@ -204,7 +212,17 @@ class OpenAIBackend(LLMBackend):
 
         finish = response.choices[0].finish_reason
         finished = finish in ("stop", None) and not tool_calls
-        return LLMTurn(text=text, tool_calls=tool_calls, finished=finished)
+        
+        input_tokens = getattr(response.usage, "prompt_tokens", 0)
+        output_tokens = getattr(response.usage, "completion_tokens", 0)
+
+        return LLMTurn(
+            text=text, 
+            tool_calls=tool_calls, 
+            finished=finished,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens
+        )
 
     def get_tools(self, registry) -> list[dict]:
         return registry.as_openai_tools()

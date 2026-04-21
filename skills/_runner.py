@@ -125,7 +125,7 @@ class SkillRunner:
             # ── LLM classify step ─────────────────────────────────────────
             elif "llm_classify" in step:
                 classification = await self._exec_classify(
-                    step["llm_classify"], ctx, name
+                    step["llm_classify"], ctx, name, incident
                 )
                 ctx[step_id] = classification
                 findings_parts.append(f"### Classification: {classification}")
@@ -174,7 +174,7 @@ class SkillRunner:
         return result
 
     async def _exec_classify(
-        self, cfg: dict, ctx: dict, skill_name: str
+        self, cfg: dict, ctx: dict, skill_name: str, incident: Incident
     ) -> str:
         """
         Narrow LLM call: given evidence from previous steps, pick a category.
@@ -215,6 +215,21 @@ class SkillRunner:
                 model=self._model,
                 max_tokens=32,
             )
+            
+            # Log the classification action to audit for token tracking
+            await self._audit.log_action(AuditAction(
+                incident_id=incident.id,
+                timestamp=now_iso(),
+                tool_name="llm_classify",
+                tool_args=json.dumps({"input_ids": input_ids}),
+                reasoning=f"Classifying incident for skill '{skill_name}'",
+                confidence=1.0,
+                status=ActionStatus.EXECUTED,
+                source=f"skill:{skill_name}",
+                input_tokens=turn.input_tokens,
+                output_tokens=turn.output_tokens
+            ))
+
             raw = (turn.text or "").strip().lower()
             log.info(f"[skill:{skill_name}] LLM classify raw response: '{raw}'")
             

@@ -23,9 +23,9 @@ practices but can be adjusted by the operator via `config.yaml`.
 
 1. Gather info (read-only tools first)
 2. Soft restart (rollout restart)
-3. Scale adjustment
-4. Hard delete / recreation
-5. Escalate to human (if none of the above are appropriate)
+3. Patch & Recycle (Apply patch → Delete affected pod to force immediate recreation)
+4. Scale adjustment
+5. Escalate to human
 
 ## Confidence Thresholds
 

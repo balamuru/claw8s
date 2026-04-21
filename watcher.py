@@ -61,6 +61,7 @@ class KubernetesWatcher:
                 k8s_config.load_kube_config()
 
         self.v1 = client.CoreV1Api()
+        self.start_time = datetime.now(timezone.utc)
 
     def start(self, loop: asyncio.AbstractEventLoop):
         """Start the watcher in a background thread."""
@@ -101,8 +102,22 @@ class KubernetesWatcher:
 
     def _process_event(self, obj, loop: asyncio.AbstractEventLoop):
         try:
+            # 1. Only process Warning events (ignore Normal events)
+            if obj.type != "Warning":
+                return
+
+            # 2. Reason filter
             reason = obj.reason or ""
             if reason not in self.cfg.trigger_reasons:
+                return
+
+            # 3. Ignore old events from before the agent started
+            event_time = obj.last_timestamp or obj.first_timestamp or datetime.now(timezone.utc)
+            if event_time < self.start_time:
+                return
+
+            # 4. Initial silence window (skip events in the first 5 seconds of connection)
+            if (datetime.now(timezone.utc) - self.start_time).total_seconds() < 5:
                 return
 
             namespace = obj.metadata.namespace or "default"

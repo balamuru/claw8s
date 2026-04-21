@@ -46,6 +46,8 @@ class AuditAction:
     status: ActionStatus
     source: str          # "skill" or "soul"
     result: Optional[str] = None
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 class AuditLog:
@@ -87,12 +89,18 @@ class AuditLog:
                 confidence  REAL NOT NULL,
                 status      TEXT NOT NULL,
                 source      TEXT NOT NULL DEFAULT 'soul',
-                result      TEXT
+                result      TEXT,
+                input_tokens  INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0
             )
         """)
-        # Migration: ensure 'source' exists if table was already created
         try:
             await self._db.execute("ALTER TABLE actions ADD COLUMN source TEXT NOT NULL DEFAULT 'soul'")
+        except:
+            pass
+        try:
+            await self._db.execute("ALTER TABLE actions ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0")
+            await self._db.execute("ALTER TABLE actions ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0")
         except:
             pass
         await self._db.commit()
@@ -110,12 +118,13 @@ class AuditLog:
 
     async def log_action(self, action: AuditAction):
         await self._db.execute("""
-            INSERT INTO actions (incident_id, timestamp, tool_name, tool_args, reasoning, confidence, status, source, result)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO actions (incident_id, timestamp, tool_name, tool_args, reasoning, confidence, status, source, result, input_tokens, output_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             action.incident_id, action.timestamp, action.tool_name,
             action.tool_args, action.reasoning, action.confidence,
-            action.status.value, action.source, action.result
+            action.status.value, action.source, action.result,
+            action.input_tokens, action.output_tokens
         ))
         await self._db.commit()
 
@@ -150,7 +159,8 @@ class AuditLog:
                 e.object_name, 
                 e.reason,
                 (SELECT status FROM actions WHERE incident_id = e.incident_id ORDER BY id DESC LIMIT 1) as last_status,
-                (SELECT source FROM actions WHERE incident_id = e.incident_id ORDER BY id DESC LIMIT 1) as last_source
+                (SELECT source FROM actions WHERE incident_id = e.incident_id ORDER BY id DESC LIMIT 1) as last_source,
+                (SELECT SUM(input_tokens + output_tokens) FROM actions WHERE incident_id = e.incident_id) as total_tokens
             FROM events e
             GROUP BY e.incident_id
             ORDER BY ts DESC
@@ -167,7 +177,8 @@ class AuditLog:
                     "object_name": r[4], 
                     "reason": r[5],
                     "status": r[6] or "pending",
-                    "source": r[7] or "unknown"
+                    "source": r[7] or "unknown",
+                    "total_tokens": r[8] or 0
                 }
                 for r in rows
             ]
@@ -175,13 +186,14 @@ class AuditLog:
 
     async def get_incident_actions(self, incident_id: str) -> list[dict]:
         async with self._db.execute("""
-            SELECT tool_name, tool_args, reasoning, confidence, status, result, timestamp, source
+            SELECT tool_name, tool_args, reasoning, confidence, status, result, timestamp, source, input_tokens, output_tokens
             FROM actions WHERE incident_id=? ORDER BY id
         """, (incident_id,)) as cursor:
             rows = await cursor.fetchall()
             return [
                 {"tool": r[0], "args": r[1], "reasoning": r[2],
-                 "confidence": r[3], "status": r[4], "result": r[5], "timestamp": r[6], "source": r[7]}
+                 "confidence": r[3], "status": r[4], "result": r[5], 
+                 "timestamp": r[6], "source": r[7], "input_tokens": r[8], "output_tokens": r[9]}
                 for r in rows
             ]
 
