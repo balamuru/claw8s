@@ -45,16 +45,20 @@ registry = ToolRegistry()
     },
     is_destructive=False,
 )
-async def get_pod_logs(name: Optional[str] = None, namespace: str = "default", container_name: str = "", container: str = "", tail_lines: int = 50) -> ToolResult:
+async def get_pod_logs(**kwargs) -> ToolResult:
+    # Handle multiple common hallucinations for the pod name
+    name = kwargs.get("name") or kwargs.get("pod_name") or kwargs.get("pod")
+    namespace = kwargs.get("namespace", "default")
+    container_name = kwargs.get("container_name") or kwargs.get("container") or ""
+    tail_lines = int(kwargs.get("tail_lines", 50))
+
     if not name:
         return ToolResult(success=False, output="Error: 'name' (pod name) is required.")
     try:
-        # Normalize container name
-        c_name = container_name or container
         v1 = k8s_client.CoreV1Api()
-        kwargs = {"name": name, "namespace": namespace, "tail_lines": tail_lines, "timestamps": True}
-        if c_name:
-            kwargs["container"] = c_name
+        k8s_kwargs = {"name": name, "namespace": namespace, "tail_lines": tail_lines, "timestamps": True}
+        if container_name:
+            k8s_kwargs["container"] = container_name
         logs = await asyncio.to_thread(v1.read_namespaced_pod_log, **kwargs)
         return ToolResult(success=True, output=logs or "(no logs)")
     except Exception as e:
@@ -73,7 +77,10 @@ async def get_pod_logs(name: Optional[str] = None, namespace: str = "default", c
     },
     is_destructive=False,
 )
-async def describe_pod(name: Optional[str] = None, namespace: str = "default") -> ToolResult:
+async def describe_pod(**kwargs) -> ToolResult:
+    name = kwargs.get("name") or kwargs.get("pod_name") or kwargs.get("pod")
+    namespace = kwargs.get("namespace", "default")
+
     if not name:
         return ToolResult(success=False, output="Error: 'name' (pod name) is required.")
     try:
@@ -118,7 +125,8 @@ async def describe_pod(name: Optional[str] = None, namespace: str = "default") -
     },
     is_destructive=False,
 )
-async def list_pods(namespace: str = "default") -> ToolResult:
+async def list_pods(**kwargs) -> ToolResult:
+    namespace = kwargs.get("namespace", "default")
     try:
         v1 = k8s_client.CoreV1Api()
         if namespace == "all":
@@ -151,7 +159,10 @@ async def list_pods(namespace: str = "default") -> ToolResult:
     },
     is_destructive=False,
 )
-async def get_deployment_status(name: Optional[str] = None, namespace: str = "default") -> ToolResult:
+async def get_deployment_status(**kwargs) -> ToolResult:
+    name = kwargs.get("name") or kwargs.get("deployment_name") or kwargs.get("deployment")
+    namespace = kwargs.get("namespace", "default")
+
     if not name:
         return ToolResult(success=False, output="Error: 'name' (deployment name) is required.")
     try:
@@ -182,7 +193,10 @@ async def get_deployment_status(name: Optional[str] = None, namespace: str = "de
     },
     is_destructive=False,
 )
-async def get_deployment(name: Optional[str] = None, namespace: str = "default") -> ToolResult:
+async def get_deployment(**kwargs) -> ToolResult:
+    name = kwargs.get("name") or kwargs.get("deployment_name") or kwargs.get("deployment")
+    namespace = kwargs.get("namespace", "default")
+
     if not name:
         return ToolResult(success=False, output="Error: 'name' (deployment name) is required.")
     try:
@@ -239,7 +253,11 @@ async def get_node_status() -> ToolResult:
     },
     is_destructive=True,
 )
-async def restart_deployment(name: Optional[str] = None, namespace: str = "default", reason: str = "Automated remediation") -> ToolResult:
+async def restart_deployment(**kwargs) -> ToolResult:
+    name = kwargs.get("name") or kwargs.get("deployment_name") or kwargs.get("deployment")
+    namespace = kwargs.get("namespace", "default")
+    reason = kwargs.get("reason", "Automated remediation")
+
     if not name:
         return ToolResult(success=False, output="Error: 'name' (deployment name) is required.")
     # Safety: refuse to touch kube-system unless explicitly named
@@ -283,7 +301,12 @@ async def restart_deployment(name: Optional[str] = None, namespace: str = "defau
     },
     is_destructive=True,
 )
-async def scale_deployment(name: Optional[str] = None, replicas: int = 1, namespace: str = "default", reason: str = "Automated scaling") -> ToolResult:
+async def scale_deployment(**kwargs) -> ToolResult:
+    name = kwargs.get("name") or kwargs.get("deployment_name") or kwargs.get("deployment")
+    replicas = int(kwargs.get("replicas", 1))
+    namespace = kwargs.get("namespace", "default")
+    reason = kwargs.get("reason", "Automated scaling")
+
     if not name:
         return ToolResult(success=False, output="Error: 'name' (deployment name) is required.")
     if not 0 <= replicas <= 20:
@@ -319,7 +342,12 @@ async def scale_deployment(name: Optional[str] = None, replicas: int = 1, namesp
     },
     is_destructive=True,
 )
-async def patch_deployment(name: Optional[str] = None, patch: Optional[dict] = None, namespace: str = "default", reason: str = "Automated patch") -> ToolResult:
+async def patch_deployment(**kwargs) -> ToolResult:
+    name = kwargs.get("name") or kwargs.get("deployment_name") or kwargs.get("deployment")
+    patch = kwargs.get("patch")
+    namespace = kwargs.get("namespace", "default")
+    reason = kwargs.get("reason", "Automated patch")
+
     if not name or not patch:
         return ToolResult(success=False, output="Error: 'name' and 'patch' are required.")
     if namespace == "kube-system":
@@ -351,7 +379,11 @@ async def patch_deployment(name: Optional[str] = None, patch: Optional[dict] = N
     },
     is_destructive=True,
 )
-async def delete_pod(name: Optional[str] = None, namespace: str = "default", reason: str = "Automated pod deletion") -> ToolResult:
+async def delete_pod(**kwargs) -> ToolResult:
+    name = kwargs.get("name") or kwargs.get("pod_name") or kwargs.get("pod")
+    namespace = kwargs.get("namespace", "default")
+    reason = kwargs.get("reason", "Automated pod deletion")
+
     if not name:
         return ToolResult(success=False, output="Error: 'name' (pod name) is required.")
     if namespace == "kube-system":
@@ -376,7 +408,10 @@ async def delete_pod(name: Optional[str] = None, namespace: str = "default", rea
     },
     is_destructive=True,
 )
-async def cordon_node(name: Optional[str] = None, reason: str = "Automated node cordon") -> ToolResult:
+async def cordon_node(**kwargs) -> ToolResult:
+    name = kwargs.get("name") or kwargs.get("node_name") or kwargs.get("node")
+    reason = kwargs.get("reason", "Automated node cordon")
+
     if not name:
         return ToolResult(success=False, output="Error: 'name' (node name) is required.")
     try:

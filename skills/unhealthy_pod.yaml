@@ -1,0 +1,41 @@
+name: unhealthy_pod
+description: "Investigate and remediate Unhealthy pods (readiness/liveness probe failures)"
+triggers:
+  - Unhealthy
+
+steps:
+  - id: describe
+    tool: describe_pod
+    args:
+      name:  "{{ incident.object_name }}"
+      namespace: "{{ incident.namespace }}"
+
+  - id: get_spec
+    tool: get_deployment
+    args:
+      name: "{{ incident.object_name }}" # Fallback: try pod name directly first, runner can handle mapping
+      namespace: "{{ incident.namespace }}"
+
+  - id: classify
+    llm_classify:
+      inputs: [describe, get_spec]
+      categories:
+        probe_misconfig: "Probe is failing due to an incorrect path, port, or timeout (Look for 'Readiness probe failed' or 'Liveness probe failed' with 404 or connection refused)"
+        app_startup: "Application is taking too long to start (Look for probe failures during initial startup period)"
+        resource_pressure: "Application is unresponsive due to CPU/Memory pressure (Look for high latency or timeouts in probe failures)"
+        success: "The pod is now healthy"
+        unknown: "Cause unclear from description alone"
+
+  - id: act
+    switch: "{{ classify }}"
+    cases:
+      probe_misconfig:
+        escalate: "Readiness/Liveness probe misconfiguration detected on `{{ incident.object_name }}`. Recommend reviewing the deployment spec and fixing the probe path or port."
+      app_startup:
+        summary: "Pod `{{ incident.object_name }}` is still starting up. Monitoring for recovery."
+      resource_pressure:
+        escalate: "Resource pressure detected on `{{ incident.object_name }}` causing probe timeouts. Recommend horizontal scaling or increasing resource limits."
+      success:
+        summary: "Pod `{{ incident.object_name }}` appears to have become healthy."
+      unknown:
+        inconclusive: true

@@ -54,6 +54,17 @@ K8s Watch API
 
 ---
 
+## The Multi-Tier Remediation Model
+
+Claw8s operates on a dual-layer logic system to balance efficiency with reasoning power:
+
+1.  **Tier 1: Skills (Deterministic YAML)**  
+    When an incident is detected (e.g., `CrashLoopBackOff`, `Unhealthy`), Claw8s first looks for a matching **Skill** in `skills/`. Skills are YAML-defined DAGs that execute a fixed set of investigation steps. They are **fast, cheap, and predictable**, making them ideal for common operational patterns.
+2.  **Tier 2: The Agentic Loop (Reasoning + "Soul")**  
+    If no skill matches, or if a skill is `inconclusive`, Claw8s escalates to the **Agentic Loop**. Here, the LLM uses open-ended tool calling to explore the cluster. This layer is guided by the **Soul** (`prompts/soul.md`), which defines the agent's identity, ethical rules (like never touching `kube-system`), and safety thresholds. This tier handles the "unknown unknowns."
+
+---
+
 ## Configuration
 
 | Key | Default | Description |
