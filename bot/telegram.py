@@ -59,8 +59,8 @@ class TelegramBot:
         self._app.add_handler(CommandHandler("history", self._cmd_history))
         self._app.add_handler(CallbackQueryHandler(self._handle_approval))
 
-        # Primary chat ID — we'll learn it on first /start
-        self._primary_chat_id: Optional[int] = None
+        # Primary chat ID — we'll learn it on first /start, or use from config
+        self._primary_chat_id: Optional[int] = self.cfg.primary_chat_id
 
     # ─── Public API ───────────────────────────────────────────────
 

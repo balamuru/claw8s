@@ -8,6 +8,7 @@ All secrets (API keys, bot token) live in env vars / .env only.
 import os
 import yaml
 from dataclasses import dataclass, field
+from typing import Optional
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -52,6 +53,8 @@ class TelegramConfig:
     enabled: bool = True
     # Comma-separated list of allowed Telegram user IDs (leave empty = any)
     allowed_user_ids: list[int] = field(default_factory=list)
+    # Optional: explicitly set the chat ID where alerts should be sent
+    primary_chat_id: Optional[int] = None
 
 
 @dataclass
@@ -98,6 +101,7 @@ def load_config(config_path: str = "config.yaml") -> Config:
         t = raw.get("telegram", {})
         cfg.telegram.enabled = t.get("enabled", cfg.telegram.enabled)
         cfg.telegram.allowed_user_ids = [int(x) for x in t.get("allowed_user_ids", [])]
+        cfg.telegram.primary_chat_id = t.get("primary_chat_id", cfg.telegram.primary_chat_id)
 
         au = raw.get("audit", {})
         cfg.audit.db_path = au.get("db_path", cfg.audit.db_path)

@@ -13,6 +13,7 @@ Safety guards baked in:
 
 import asyncio
 import json
+from typing import Optional
 import logging
 from typing import Optional
 
@@ -34,21 +35,26 @@ registry = ToolRegistry()
     description="Fetch the last N lines of logs from a pod container. Use to diagnose crashes and errors.",
     parameters={
         "properties": {
-            "namespace": {"type": "string", "description": "Kubernetes namespace"},
-            "pod_name": {"type": "string", "description": "Pod name"},
+            "namespace": {"type": "string", "description": "Kubernetes namespace (defaults to 'default')", "default": "default"},
+            "name": {"type": "string", "description": "Pod name"},
             "container_name": {"type": "string", "description": "Container name (optional)", "default": ""},
+            "container": {"type": "string", "description": "Container name (alias for container_name)", "default": ""},
             "tail_lines": {"type": "integer", "description": "Number of log lines to fetch", "default": 50},
         },
-        "required": ["namespace", "pod_name"],
+        "required": ["name"],
     },
     is_destructive=False,
 )
-async def get_pod_logs(namespace: str, pod_name: str, container_name: str = "", tail_lines: int = 50) -> ToolResult:
+async def get_pod_logs(name: Optional[str] = None, namespace: str = "default", container_name: str = "", container: str = "", tail_lines: int = 50) -> ToolResult:
+    if not name:
+        return ToolResult(success=False, output="Error: 'name' (pod name) is required.")
     try:
+        # Normalize container name
+        c_name = container_name or container
         v1 = k8s_client.CoreV1Api()
-        kwargs = {"name": pod_name, "namespace": namespace, "tail_lines": tail_lines, "timestamps": True}
-        if container_name:
-            kwargs["container"] = container_name
+        kwargs = {"name": name, "namespace": namespace, "tail_lines": tail_lines, "timestamps": True}
+        if c_name:
+            kwargs["container"] = c_name
         logs = await asyncio.to_thread(v1.read_namespaced_pod_log, **kwargs)
         return ToolResult(success=True, output=logs or "(no logs)")
     except Exception as e:
@@ -60,17 +66,19 @@ async def get_pod_logs(namespace: str, pod_name: str, container_name: str = "", 
     description="Describe a pod — events, conditions, resource usage, container states.",
     parameters={
         "properties": {
-            "namespace": {"type": "string"},
-            "pod_name": {"type": "string"},
+            "namespace": {"type": "string", "default": "default"},
+            "name": {"type": "string"},
         },
-        "required": ["namespace", "pod_name"],
+        "required": ["name"],
     },
     is_destructive=False,
 )
-async def describe_pod(namespace: str, pod_name: str) -> ToolResult:
+async def describe_pod(name: Optional[str] = None, namespace: str = "default") -> ToolResult:
+    if not name:
+        return ToolResult(success=False, output="Error: 'name' (pod name) is required.")
     try:
         v1 = k8s_client.CoreV1Api()
-        pod = await asyncio.to_thread(v1.read_namespaced_pod, name=pod_name, namespace=namespace)
+        pod = await asyncio.to_thread(v1.read_namespaced_pod, name=name, namespace=namespace)
         info = {
             "phase": pod.status.phase,
             "conditions": [{"type": c.type, "status": c.status, "reason": c.reason} for c in (pod.status.conditions or [])],
@@ -104,13 +112,13 @@ async def describe_pod(namespace: str, pod_name: str) -> ToolResult:
     description="List pods in a namespace with their status.",
     parameters={
         "properties": {
-            "namespace": {"type": "string", "description": "Namespace, or 'all' for all namespaces"},
+            "namespace": {"type": "string", "description": "Namespace, or 'all' for all namespaces", "default": "default"},
         },
-        "required": ["namespace"],
+        "required": [],
     },
     is_destructive=False,
 )
-async def list_pods(namespace: str) -> ToolResult:
+async def list_pods(namespace: str = "default") -> ToolResult:
     try:
         v1 = k8s_client.CoreV1Api()
         if namespace == "all":
@@ -136,17 +144,19 @@ async def list_pods(namespace: str) -> ToolResult:
     description="Get the status of a Deployment including replica counts and conditions.",
     parameters={
         "properties": {
-            "namespace": {"type": "string"},
-            "deployment_name": {"type": "string"},
+            "namespace": {"type": "string", "default": "default"},
+            "name": {"type": "string"},
         },
-        "required": ["namespace", "deployment_name"],
+        "required": ["name"],
     },
     is_destructive=False,
 )
-async def get_deployment_status(namespace: str, deployment_name: str) -> ToolResult:
+async def get_deployment_status(name: Optional[str] = None, namespace: str = "default") -> ToolResult:
+    if not name:
+        return ToolResult(success=False, output="Error: 'name' (deployment name) is required.")
     try:
         apps_v1 = k8s_client.AppsV1Api()
-        d = await asyncio.to_thread(apps_v1.read_namespaced_deployment, name=deployment_name, namespace=namespace)
+        d = await asyncio.to_thread(apps_v1.read_namespaced_deployment, name=name, namespace=namespace)
         info = {
             "desired": d.spec.replicas,
             "ready": d.status.ready_replicas,
@@ -196,15 +206,17 @@ async def get_node_status() -> ToolResult:
     ),
     parameters={
         "properties": {
-            "namespace": {"type": "string"},
-            "deployment_name": {"type": "string"},
+            "namespace": {"type": "string", "default": "default"},
+            "name": {"type": "string"},
             "reason": {"type": "string", "description": "Human-readable reason for the restart"},
         },
-        "required": ["namespace", "deployment_name"],
+        "required": ["name"],
     },
     is_destructive=True,
 )
-async def restart_deployment(namespace: str, deployment_name: str, reason: str = "Automated remediation") -> ToolResult:
+async def restart_deployment(name: Optional[str] = None, namespace: str = "default", reason: str = "Automated remediation") -> ToolResult:
+    if not name:
+        return ToolResult(success=False, output="Error: 'name' (deployment name) is required.")
     # Safety: refuse to touch kube-system unless explicitly named
     if namespace == "kube-system":
         return ToolResult(success=False, output="Refusing to restart deployments in kube-system automatically.")
@@ -225,9 +237,9 @@ async def restart_deployment(namespace: str, deployment_name: str, reason: str =
         }
         await asyncio.to_thread(
             apps_v1.patch_namespaced_deployment,
-            name=deployment_name, namespace=namespace, body=patch
+            name=name, namespace=namespace, body=patch
         )
-        return ToolResult(success=True, output=f"Rolling restart triggered for {deployment_name} in {namespace}.")
+        return ToolResult(success=True, output=f"Rolling restart triggered for {name} in {namespace}.")
     except Exception as e:
         return ToolResult(success=False, output=str(e))
 
@@ -237,16 +249,18 @@ async def restart_deployment(namespace: str, deployment_name: str, reason: str =
     description="Scale a Deployment to a specific number of replicas (0–20).",
     parameters={
         "properties": {
-            "namespace": {"type": "string"},
-            "deployment_name": {"type": "string"},
+            "namespace": {"type": "string", "default": "default"},
+            "name": {"type": "string"},
             "replicas": {"type": "integer", "description": "Target replica count (0–20)"},
             "reason": {"type": "string"},
         },
-        "required": ["namespace", "deployment_name", "replicas"],
+        "required": ["name", "replicas"],
     },
     is_destructive=True,
 )
-async def scale_deployment(namespace: str, deployment_name: str, replicas: int, reason: str = "Automated scaling") -> ToolResult:
+async def scale_deployment(name: Optional[str] = None, replicas: int = 1, namespace: str = "default", reason: str = "Automated scaling") -> ToolResult:
+    if not name:
+        return ToolResult(success=False, output="Error: 'name' (deployment name) is required.")
     if not 0 <= replicas <= 20:
         return ToolResult(success=False, output=f"Replica count {replicas} out of allowed range (0–20).")
     if namespace == "kube-system":
@@ -256,9 +270,42 @@ async def scale_deployment(namespace: str, deployment_name: str, replicas: int, 
         patch = {"spec": {"replicas": replicas}}
         await asyncio.to_thread(
             apps_v1.patch_namespaced_deployment_scale,
-            name=deployment_name, namespace=namespace, body=patch
+            name=name, namespace=namespace, body=patch
         )
-        return ToolResult(success=True, output=f"Scaled {deployment_name} to {replicas} replicas. Reason: {reason}")
+        return ToolResult(success=True, output=f"Scaled {name} to {replicas} replicas. Reason: {reason}")
+    except Exception as e:
+        return ToolResult(success=False, output=str(e))
+
+
+@registry.tool(
+    name="patch_deployment",
+    description=(
+        "Apply a JSON patch to a Deployment. Use to fix image tags, env vars, or resource limits. "
+        "Example patch: {'spec': {'template': {'spec': {'containers': [{'name': 'nginx', 'image': 'nginx:latest'}]}}}}"
+    ),
+    parameters={
+        "properties": {
+            "namespace": {"type": "string", "default": "default"},
+            "name": {"type": "string"},
+            "patch": {"type": "object", "description": "The JSON patch to apply to the deployment"},
+            "reason": {"type": "string"},
+        },
+        "required": ["name", "patch"],
+    },
+    is_destructive=True,
+)
+async def patch_deployment(name: Optional[str] = None, patch: Optional[dict] = None, namespace: str = "default", reason: str = "Automated patch") -> ToolResult:
+    if not name or not patch:
+        return ToolResult(success=False, output="Error: 'name' and 'patch' are required.")
+    if namespace == "kube-system":
+        return ToolResult(success=False, output="Refusing to patch deployments in kube-system automatically.")
+    try:
+        apps_v1 = k8s_client.AppsV1Api()
+        await asyncio.to_thread(
+            apps_v1.patch_namespaced_deployment,
+            name=name, namespace=namespace, body=patch
+        )
+        return ToolResult(success=True, output=f"Deployment {name} patched successfully. Reason: {reason}")
     except Exception as e:
         return ToolResult(success=False, output=str(e))
 
@@ -271,21 +318,23 @@ async def scale_deployment(namespace: str, deployment_name: str, replicas: int, 
     ),
     parameters={
         "properties": {
-            "namespace": {"type": "string"},
-            "pod_name": {"type": "string"},
+            "namespace": {"type": "string", "default": "default"},
+            "name": {"type": "string"},
             "reason": {"type": "string"},
         },
-        "required": ["namespace", "pod_name"],
+        "required": ["name"],
     },
     is_destructive=True,
 )
-async def delete_pod(namespace: str, pod_name: str, reason: str = "Automated pod deletion") -> ToolResult:
+async def delete_pod(name: Optional[str] = None, namespace: str = "default", reason: str = "Automated pod deletion") -> ToolResult:
+    if not name:
+        return ToolResult(success=False, output="Error: 'name' (pod name) is required.")
     if namespace == "kube-system":
         return ToolResult(success=False, output="Refusing to delete pods in kube-system automatically.")
     try:
         v1 = k8s_client.CoreV1Api()
-        await asyncio.to_thread(v1.delete_namespaced_pod, name=pod_name, namespace=namespace)
-        return ToolResult(success=True, output=f"Pod {pod_name} deleted. Reason: {reason}")
+        await asyncio.to_thread(v1.delete_namespaced_pod, name=name, namespace=namespace)
+        return ToolResult(success=True, output=f"Pod {name} deleted. Reason: {reason}")
     except Exception as e:
         return ToolResult(success=False, output=str(e))
 
@@ -295,21 +344,23 @@ async def delete_pod(namespace: str, pod_name: str, reason: str = "Automated pod
     description="Cordon a node (mark as unschedulable). Does NOT drain existing pods.",
     parameters={
         "properties": {
-            "node_name": {"type": "string"},
+            "name": {"type": "string"},
             "reason": {"type": "string"},
         },
-        "required": ["node_name"],
+        "required": ["name"],
     },
     is_destructive=True,
 )
-async def cordon_node(node_name: str, reason: str = "Automated node cordon") -> ToolResult:
+async def cordon_node(name: Optional[str] = None, reason: str = "Automated node cordon") -> ToolResult:
+    if not name:
+        return ToolResult(success=False, output="Error: 'name' (node name) is required.")
     try:
         v1 = k8s_client.CoreV1Api()
         patch = {
             "spec": {"unschedulable": True},
             "metadata": {"annotations": {"claw8s/cordon-reason": reason}},
         }
-        await asyncio.to_thread(v1.patch_node, name=node_name, body=patch)
-        return ToolResult(success=True, output=f"Node {node_name} cordoned. Reason: {reason}", requires_approval=True)
+        await asyncio.to_thread(v1.patch_node, name=name, body=patch)
+        return ToolResult(success=True, output=f"Node {name} cordoned. Reason: {reason}", requires_approval=True)
     except Exception as e:
         return ToolResult(success=False, output=str(e))
