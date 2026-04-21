@@ -13,11 +13,11 @@ Safety guards baked in:
 
 import asyncio
 import json
-from typing import Optional
 import logging
 from typing import Optional
 
-from kubernetes import client as k8s_client
+from kubernetes import client as k8s_client, config as k8s_config
+from kubernetes.dynamic import DynamicClient
 
 from .registry import ToolRegistry, ToolResult
 
@@ -513,5 +513,124 @@ async def cordon_node(**kwargs) -> ToolResult:
         }
         await asyncio.to_thread(v1.patch_node, name=name, body=patch)
         return ToolResult(success=True, output=f"Node {name} cordoned. Reason: {reason}", requires_approval=True)
+    except Exception as e:
+        return ToolResult(success=False, output=str(e))
+
+
+@registry.tool(
+    name="get_resource",
+    description="Fetch any Kubernetes resource (Service, ConfigMap, Ingress, etc.) by kind and name.",
+    parameters={
+        "properties": {
+            "kind": {"type": "string", "description": "Resource kind (e.g., Service, ConfigMap, Secret, Ingress)"},
+            "name": {"type": "string"},
+            "namespace": {"type": "string", "default": "default"},
+            "api_version": {"type": "string", "description": "Optional API version (e.g., v1, apps/v1, networking.k8s.io/v1)"},
+        },
+        "required": ["kind", "name"],
+    },
+    is_destructive=False,
+)
+async def get_resource(**kwargs) -> ToolResult:
+    kind = kwargs.get("kind")
+    name = kwargs.get("name")
+    namespace = kwargs.get("namespace", "default")
+    api_version = kwargs.get("api_version")
+
+    try:
+        dynamic = DynamicClient(k8s_client.ApiClient())
+        resource = dynamic.resources.get(api_version=api_version, kind=kind)
+        
+        if resource.namespaced:
+            obj = await asyncio.to_thread(resource.get, name=name, namespace=namespace)
+        else:
+            obj = await asyncio.to_thread(resource.get, name=name)
+            
+        return ToolResult(success=True, output=json.dumps(obj.to_dict(), indent=2))
+    except Exception as e:
+        return ToolResult(success=False, output=str(e))
+
+
+@registry.tool(
+    name="list_resources",
+    description="List all resources of a specific kind (Services, ConfigMaps, etc.).",
+    parameters={
+        "properties": {
+            "kind": {"type": "string", "description": "Resource kind (e.g., Service, ConfigMap, Ingress)"},
+            "namespace": {"type": "string", "description": "Namespace, or 'all' for all namespaces", "default": "default"},
+            "api_version": {"type": "string", "description": "Optional API version"},
+        },
+        "required": ["kind"],
+    },
+    is_destructive=False,
+)
+async def list_resources(**kwargs) -> ToolResult:
+    kind = kwargs.get("kind")
+    namespace = kwargs.get("namespace", "default")
+    api_version = kwargs.get("api_version")
+
+    try:
+        dynamic = DynamicClient(k8s_client.ApiClient())
+        resource = dynamic.resources.get(api_version=api_version, kind=kind)
+        
+        if resource.namespaced:
+            if namespace == "all":
+                objs = await asyncio.to_thread(resource.get)
+            else:
+                objs = await asyncio.to_thread(resource.get, namespace=namespace)
+        else:
+            objs = await asyncio.to_thread(resource.get)
+            
+        # Return a summarized list for LLM token efficiency
+        summary = []
+        for o in objs.items:
+            summary.append({
+                "name": o.metadata.name,
+                "namespace": o.metadata.namespace if hasattr(o.metadata, "namespace") else "N/A",
+                "creation_timestamp": str(o.metadata.creation_timestamp)
+            })
+            
+        return ToolResult(success=True, output=json.dumps(summary, indent=2))
+    except Exception as e:
+        return ToolResult(success=False, output=str(e))
+
+
+@registry.tool(
+    name="patch_resource",
+    description="Apply a JSON patch to any Kubernetes resource.",
+    parameters={
+        "properties": {
+            "kind": {"type": "string"},
+            "name": {"type": "string"},
+            "namespace": {"type": "string", "default": "default"},
+            "patch": {"type": "object", "description": "The JSON patch to apply"},
+            "api_version": {"type": "string"},
+            "reason": {"type": "string"},
+        },
+        "required": ["kind", "name", "patch"],
+    },
+    is_destructive=True,
+)
+async def patch_resource(**kwargs) -> ToolResult:
+    kind = kwargs.get("kind")
+    name = kwargs.get("name")
+    namespace = kwargs.get("namespace", "default")
+    patch = kwargs.get("patch")
+    api_version = kwargs.get("api_version")
+    reason = kwargs.get("reason", "Automated resource patch")
+
+    if namespace == "kube-system":
+        return ToolResult(success=False, output="Refusing to patch resources in kube-system automatically.")
+
+    try:
+        dynamic = DynamicClient(k8s_client.ApiClient())
+        resource = dynamic.resources.get(api_version=api_version, kind=kind)
+        
+        if resource.namespaced:
+            await asyncio.to_thread(resource.patch, name=name, namespace=namespace, body=patch)
+        else:
+            await asyncio.to_thread(resource.patch, name=name, body=patch)
+            
+        return ToolResult(success=True, output=f"{kind} {name} patched successfully. Reason: {reason}")
     except Exception as e:
         return ToolResult(success=False, output=str(e))

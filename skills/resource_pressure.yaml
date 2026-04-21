@@ -1,0 +1,40 @@
+name: resource_pressure
+description: "Detect and remediate pods failing due to insufficient CPU/Memory or OOM kills."
+triggers:
+  - FailedScheduling
+  - OOMKilled
+  - BackOff
+
+steps:
+  - id: describe
+    tool: describe_pod
+    args:
+      name: "{{ incident.object_name }}"
+      namespace: "{{ incident.namespace }}"
+
+  - id: get_spec
+    tool: get_deployment
+    args:
+      name: "{{ incident.object_name }}"
+      namespace: "{{ incident.namespace }}"
+
+  - id: classify
+    llm_classify:
+      inputs: [describe, get_spec]
+      categories:
+        oom_killed: "Pod was terminated due to OOM (Out Of Memory). Look for 'OOMKilled' in container states or 'reason: OOMKilled'."
+        insufficient_resources: "Pod cannot be scheduled due to insufficient CPU or Memory in the cluster. Look for 'FailedScheduling' events with 'Insufficient memory' or 'Insufficient cpu'."
+        potential_leak: "Pod is healthy now but shows a steady climb in memory usage or frequent restarts. (Not currently actionable, just monitoring)."
+        unknown: "The failure reason is not clearly related to resource pressure."
+
+  - id: act
+    switch: "{{ classify }}"
+    cases:
+      oom_killed:
+        escalate: "Pod `{{ incident.object_name }}` was OOMKilled. I recommend increasing the memory limits in the deployment spec. Would you like me to try a 25% increase?"
+      insufficient_resources:
+        escalate: "Pod `{{ incident.object_name }}` cannot be scheduled due to insufficient resources. Recommend checking cluster capacity or reducing requests for this deployment."
+      potential_leak:
+        summary: "Resource usage for `{{ incident.object_name }}` is high but within limits. Monitoring for memory leaks."
+      unknown:
+        inconclusive: true

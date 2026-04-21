@@ -107,14 +107,18 @@ class TelegramBot:
         future: asyncio.Future = asyncio.get_event_loop().create_future()
         self._pending[callback_id] = future
 
-        args_str = "\n".join(f"  `{k}`: `{v}`" for k, v in tool_args.items())
+        args_str = "\n".join(f"  {k}: {v}" for k, v in tool_args.items())
+
+        def escape(t: str) -> str:
+            return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
         text = (
-            f"⚠️ *Approval Required*\n\n"
-            f"*Action:* `{tool_name}`\n"
-            f"*Incident:* `{incident_id[:8]}...`\n"
-            f"*Confidence:* {confidence:.0%}\n"
-            f"*Args:*\n{args_str}\n\n"
-            f"*Reasoning:* {reasoning[:400]}"
+            f"<b>🛡️ Approval Required</b>\n"
+            f"Incident: <code>{incident_id}</code>\n"
+            f"Action: <b>{tool_name}</b>\n"
+            f"Confidence: {confidence:.0%}\n\n"
+            f"<b>Args:</b>\n<pre>{escape(args_str)}</pre>\n\n"
+            f"<b>Reasoning:</b> {escape(reasoning[:600])}"
         )
         keyboard = InlineKeyboardMarkup([
             [
@@ -126,7 +130,7 @@ class TelegramBot:
         await self._app.bot.send_message(
             chat_id=self._primary_chat_id,
             text=text,
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=keyboard,
         )
 

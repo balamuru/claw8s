@@ -221,9 +221,9 @@ class SkillRunner:
             if not raw:
                 return "unknown"
 
-            # Match to the closest valid key
+            # Match to the closest valid key (fuzzy)
             for key in categories:
-                if key in raw:
+                if key in raw or raw in key:
                     return key
             
             log.warning(f"[skill:{skill_name}] Classify response matched no category.")

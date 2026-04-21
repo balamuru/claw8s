@@ -1,0 +1,40 @@
+name: image_pull_failure
+description: "Detect and remediate issues where pods cannot pull their container images."
+triggers:
+  - ErrImagePull
+  - ImagePullBackOff
+  - InvalidImageName
+
+steps:
+  - id: describe
+    tool: describe_pod
+    args:
+      name: "{{ incident.object_name }}"
+      namespace: "{{ incident.namespace }}"
+
+  - id: get_spec
+    tool: get_deployment
+    args:
+      name: "{{ incident.object_name }}"
+      namespace: "{{ incident.namespace }}"
+
+  - id: classify
+    llm_classify:
+      inputs: [describe, get_spec]
+      categories:
+        typo: "There is a clear typo in the image name or tag (e.g., 'nginxx' instead of 'nginx')."
+        missing_secret: "The image is from a private registry and seems to be missing imagePullSecrets (Look for 'unauthorized' or '401')."
+        tag_missing: "The specific image tag does not exist in the registry (Look for 'manifest not found' or '404')."
+        unknown: "Reason for pull failure is unclear."
+
+  - id: act
+    switch: "{{ classify }}"
+    cases:
+      typo:
+        escalate: "Detected a likely typo in the image name for `{{ incident.object_name }}`. Recommend correcting the image field in the deployment spec."
+      missing_secret:
+        escalate: "Pod `{{ incident.object_name }}` is failing to pull a private image. It likely needs an `imagePullSecret` configured."
+      tag_missing:
+        escalate: "The image tag for `{{ incident.object_name }}` was not found in the registry. Please verify the tag exists."
+      unknown:
+        inconclusive: true
