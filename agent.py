@@ -98,11 +98,16 @@ class Claw8sAgent:
         needs_human = False
         human_message = None
 
+        # Fetch recent history for this object to prevent looping
+        history = await self.audit.get_recent_object_actions(
+            incident.namespace, incident.object_kind, incident.object_name
+        )
+
         # Start conversation
         turn = await self.backend.chat(
             system=SYSTEM_PROMPT,
             tools=tools,
-            user_message=self._incident_context(incident, skill_findings),
+            user_message=self._incident_context(incident, skill_findings, history),
             model=self.cfg.model,
             max_tokens=self.cfg.max_tokens,
         )
@@ -186,7 +191,7 @@ class Claw8sAgent:
             needs_human=True,
         )
 
-    def _incident_context(self, incident: Incident, skill_findings: str = "") -> str:
+    def _incident_context(self, incident: Incident, skill_findings: str = "", history: list[dict] = None) -> str:
         ctx = (
             f"## New Incident\n\n"
             f"**Incident ID:** {incident.id}\n"
@@ -204,6 +209,15 @@ class Claw8sAgent:
                 f"A pre-defined skill was run for this incident type but was inconclusive. "
                 f"Here is what was found:\n\n{skill_findings}\n\n"
             )
+
+        if history:
+            ctx += "## Recent Action History (Last 2 Hours)\n"
+            ctx += "The following actions were already taken for this specific object. DO NOT repeat a failing action.\n\n"
+            for h in history:
+                ctx += f"- **{h['timestamp']}**: {h['tool']} ({h['status']}) - *{h['reasoning']}*\n"
+                if h['result']:
+                    ctx += f"  Result: {h['result']}\n"
+            ctx += "\n"
             
         ctx += "Please investigate and remediate this incident."
         return ctx

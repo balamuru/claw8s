@@ -132,7 +132,7 @@ async def describe_pod(**kwargs) -> ToolResult:
     is_destructive=False,
 )
 async def list_pods(**kwargs) -> ToolResult:
-    namespace = kwargs.get("namespace", "default")
+    namespace = kwargs.get("namespace") or kwargs.get("ns") or "default"
     try:
         v1 = k8s_client.CoreV1Api()
         if namespace == "all":

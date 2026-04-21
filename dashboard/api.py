@@ -27,6 +27,15 @@ async def get_incidents():
 async def get_actions(incident_id: str):
     return await audit.get_incident_actions(incident_id)
 
+@app.get("/api/stats/frequency")
+async def get_frequency(minutes: int = 60):
+    return await audit.get_incident_frequency(minutes)
+
+@app.delete("/api/incidents")
+async def clear_incidents():
+    await audit.clear_all_records()
+    return {"status": "ok"}
+
 # Serve static files
 app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
 

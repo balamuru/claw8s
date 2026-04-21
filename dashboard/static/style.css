@@ -77,32 +77,144 @@ header {
     margin-bottom: 1.5rem;
 }
 
+.header-actions {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, #ff4d4d, #f44336);
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: opacity 0.2s;
+}
+
+.btn-danger:hover {
+    opacity: 0.9;
+}
+
+/* List Layout */
 .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-    gap: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
 }
 
 .card {
     background: var(--card-bg);
     border: 1px solid var(--glass-border);
-    border-radius: 16px;
-    padding: 1.5rem;
-    transition: all 0.3s ease;
+    border-radius: 12px;
+    padding: 0.75rem 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.2s ease;
     cursor: pointer;
     backdrop-filter: blur(10px);
 }
 
+.empty-state {
+    text-align: center;
+    padding: 3rem;
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+    background: var(--card-bg);
+    border-radius: 12px;
+    border: 1px dashed var(--glass-border);
+}
+
 .card:hover {
     border-color: var(--accent-blue);
-    transform: translateY(-4px);
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    background: rgba(255, 255, 255, 0.05);
 }
 
 .card-header {
     display: flex;
-    justify-content: space-between;
-    margin-bottom: 1rem;
+    align-items: center;
+    gap: 1.5rem;
+    min-width: 200px;
+    margin-bottom: 0;
+}
+
+.card-body {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    margin-left: 2rem;
+}
+
+.card-body h3 {
+    margin-bottom: 0;
+    font-size: 1rem;
+    min-width: 150px;
+}
+
+.card-footer {
+    display: flex;
+    gap: 2rem;
+    align-items: center;
+    margin-top: 0;
+}
+
+/* Histogram */
+.analytics {
+    margin-bottom: 2rem;
+    background: var(--card-bg);
+    padding: 1.5rem;
+    border-radius: 16px;
+    border: 1px solid var(--glass-border);
+}
+
+.histogram {
+    height: 100px;
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    margin-top: 1rem;
+}
+
+.hist-bar {
+    flex: 1;
+    background: var(--accent-blue);
+    min-width: 4px;
+    border-radius: 4px 4px 0 0;
+    transition: height 0.3s ease;
+    position: relative;
+    opacity: 0.7;
+}
+
+.hist-bar:hover {
+    opacity: 1;
+    background: var(--accent-purple);
+}
+
+.hist-bar::after {
+    content: attr(data-count);
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.65rem;
+    opacity: 0;
+}
+
+.hist-bar:hover::after {
+    opacity: 1;
+}
+
+.select-sm {
+    background: var(--bg-dark);
+    color: var(--text-main);
+    border: 1px solid var(--glass-border);
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    outline: none;
 }
 
 .status-pill {

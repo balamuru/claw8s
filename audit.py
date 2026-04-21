@@ -8,7 +8,7 @@ with full reasoning, outcome, and timestamp. Async via aiosqlite.
 import json
 import asyncio
 import aiosqlite
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, asdict
 from enum import Enum
 from typing import Optional
@@ -183,8 +183,8 @@ class AuditLog:
                 for r in rows
             ]
 
-
     async def get_incident_actions(self, incident_id: str) -> list[dict]:
+        """Fetch all actions taken for a specific incident."""
         async with self._db.execute("""
             SELECT tool_name, tool_args, reasoning, confidence, status, result, timestamp, source, input_tokens, output_tokens
             FROM actions WHERE incident_id=? ORDER BY id
@@ -196,6 +196,74 @@ class AuditLog:
                  "timestamp": r[6], "source": r[7], "input_tokens": r[8], "output_tokens": r[9]}
                 for r in rows
             ]
+
+    async def get_recent_object_actions(self, namespace: str, kind: str, name: str, hours: int = 2) -> list[dict]:
+        """Fetch all autonomous actions taken on this specific object recently."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        async with self._db.execute("""
+            SELECT a.tool_name, a.status, a.result, a.reasoning, a.timestamp, e.reason
+            FROM actions a
+            JOIN events e ON a.incident_id = e.id
+            WHERE e.namespace = ? AND e.object_kind = ? AND e.object_name = ?
+              AND a.timestamp > ?
+            ORDER BY a.timestamp DESC
+        """, (namespace, kind, name, cutoff)) as cursor:
+            rows = await cursor.fetchall()
+            return [
+                {"tool": r[0], "status": r[1], "result": r[2], "reasoning": r[3], "timestamp": r[4], "incident_reason": r[5]}
+                for r in rows
+            ]
+
+    async def get_incident_frequency(self, bucket_minutes: int = 60) -> list[dict]:
+        """Group incidents into time buckets for the histogram."""
+        query = f"""
+            SELECT 
+                strftime('%Y-%m-%dT%H:%M:00Z', datetime((strftime('%s', timestamp) / ({bucket_minutes} * 60)) * ({bucket_minutes} * 60), 'unixepoch')) as bucket,
+                count(*) as count
+            FROM events
+            GROUP BY bucket
+            ORDER BY bucket DESC
+            LIMIT 24
+        """
+        async with self._db.execute(query) as cursor:
+            rows = await cursor.fetchall()
+            return [{"bucket": r[0], "count": r[1]} for r in rows]
+
+    async def purge_old_records(self, days: int):
+        """Delete incidents and actions older than N days."""
+        from datetime import datetime, timedelta, timezone
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        
+        # 1. Delete actions for old incidents
+        await self._db.execute("""
+            DELETE FROM actions WHERE incident_id IN (
+                SELECT id FROM events WHERE timestamp < ?
+            )
+        """, (cutoff,))
+        
+        # 2. Delete old incidents
+        async with self._db.execute("DELETE FROM events WHERE timestamp < ?", (cutoff,)) as cursor:
+            deleted_count = cursor.rowcount
+            
+        await self._db.commit()
+        if deleted_count > 0:
+            import logging
+            logging.getLogger("audit").info(f"Purged {deleted_count} stale incidents older than {days} days.")
+        return deleted_count
+
+    async def clear_all_records(self):
+        """Wipe all audit history."""
+        import logging
+        log = logging.getLogger("audit")
+        try:
+            await self._db.execute("DELETE FROM actions")
+            await self._db.execute("DELETE FROM events")
+            await self._db.commit()
+            log.info("Audit history cleared successfully via API.")
+            return True
+        except Exception as e:
+            log.error(f"Failed to clear audit history: {e}")
+            return False
 
 
 def now_iso() -> str:

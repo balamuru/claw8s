@@ -26,10 +26,27 @@
         </header>
 
         <main>
+            <section class="analytics">
+                <div class="section-header">
+                    <h2>Incident Frequency</h2>
+                    <select id="bucket-select" class="select-sm">
+                        <option value="15">15m buckets</option>
+                        <option value="60" selected>1h buckets</option>
+                        <option value="1440">1d buckets</option>
+                    </select>
+                </div>
+                <div id="histogram-container" class="histogram">
+                    <!-- Histogram bars will be injected here -->
+                </div>
+            </section>
+
             <section class="incident-list">
                 <div class="section-header">
                     <h2>Recent Incidents</h2>
-                    <button id="refresh-btn" class="btn-secondary">Refresh</button>
+                    <div class="header-actions">
+                        <button id="clear-btn" class="btn-danger">Clear History</button>
+                        <button id="refresh-btn" class="btn-secondary">Refresh</button>
+                    </div>
                 </div>
                 <div id="incidents-container" class="grid">
                     <!-- Incidents will be injected here -->

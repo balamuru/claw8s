@@ -69,6 +69,10 @@ async def main(config_path: str = "config.yaml"):
     await audit.connect()
     log.info(f"Audit log connected: {cfg.audit.db_path}")
 
+    # Run initial purge
+    if cfg.audit.retention_days > 0:
+        await audit.purge_old_records(cfg.audit.retention_days)
+
     # ── Telegram bot ────────────────────────────────────────────────
     bot: TelegramBot | None = None
     if cfg.telegram.enabled:

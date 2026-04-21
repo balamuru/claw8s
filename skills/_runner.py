@@ -199,11 +199,15 @@ class SkillRunner:
             f"  {key}: {desc}" for key, desc in categories.items()
         )
         prompt = (
-            f"You are classifying a Kubernetes incident. "
-            f"Choose EXACTLY ONE category from the list below.\n\n"
-            f"Categories:\n{category_lines}\n\n"
-            f"Evidence:\n{evidence}\n\n"
-            f"Respond with ONLY the category key (e.g. 'oom'). No explanation."
+            f"You are an expert Kubernetes SRE. Your task is to classify an incident into one of the following categories based on the evidence provided.\n\n"
+            f"CATEGORIES:\n{category_lines}\n\n"
+            f"EVIDENCE:\n{evidence}\n\n"
+            f"INSTRUCTIONS:\n"
+            f"1. Analyze the evidence carefully.\n"
+            f"2. Select the category key that best fits the root cause.\n"
+            f"3. If no category fits perfectly, choose the closest one or 'unknown'.\n"
+            f"4. Respond with ONLY the category key (e.g. 'oom'). Do not include markdown, quotes, or explanations.\n\n"
+            f"RESPONSE:"
         )
 
         try:

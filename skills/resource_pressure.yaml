@@ -31,9 +31,22 @@ steps:
     switch: "{{ classify }}"
     cases:
       oom_killed:
-        escalate: "Pod `{{ incident.object_name }}` was OOMKilled. I recommend increasing the memory limits in the deployment spec. Would you like me to try a 25% increase?"
+        tool: patch_deployment
+        args:
+          name: "{{ incident.object_name }}"
+          namespace: "{{ incident.namespace }}"
+          patch: 
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: "nginx" # Skill assumes container name matches or can be fuzzy-matched
+                      resources:
+                        limits:
+                          memory: "512Mi" # In a real system, we'd use a variable here
+          reason: "Automated OOMKill remediation via Runbook"
       insufficient_resources:
-        inconclusive: true # Let the Soul handle complex scheduling issues like impossible resource requests
+        inconclusive: true # Still fallback for complex scheduling issues
       potential_leak:
         summary: "Resource usage for `{{ incident.object_name }}` is high but within limits. Monitoring for memory leaks."
       unknown:

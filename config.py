@@ -60,6 +60,7 @@ class TelegramConfig:
 @dataclass
 class AuditConfig:
     db_path: str = "claw8s_audit.db"
+    retention_days: int = 30
 
 
 @dataclass
@@ -105,6 +106,7 @@ def load_config(config_path: str = "config.yaml") -> Config:
 
         au = raw.get("audit", {})
         cfg.audit.db_path = au.get("db_path", cfg.audit.db_path)
+        cfg.audit.retention_days = au.get("retention_days", cfg.audit.retention_days)
 
     # Secrets always from env (override YAML if set)
     cfg.llm_api_key = os.environ.get("LLM_API_KEY") or os.environ.get("ANTHROPIC_API_KEY") or ""

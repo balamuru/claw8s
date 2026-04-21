@@ -3,10 +3,14 @@ const detailPanel = document.getElementById('detail-view');
 const actionHistory = document.getElementById('action-history');
 const closeBtn = document.getElementById('close-detail');
 const refreshBtn = document.getElementById('refresh-btn');
+const histogramContainer = document.getElementById('histogram-container');
+const bucketSelect = document.getElementById('bucket-select');
+
+const clearBtn = document.getElementById('clear-btn');
 
 async function fetchIncidents() {
     try {
-        const response = await fetch('/api/incidents');
+        const response = await fetch(`/api/incidents?t=${Date.now()}`);
         const data = await response.json();
         renderIncidents(data);
     } catch (error) {
@@ -15,8 +19,51 @@ async function fetchIncidents() {
     }
 }
 
+async function clearIncidents() {
+    if (!confirm('Are you sure you want to clear ALL incident history? This cannot be undone.')) return;
+    try {
+        await fetch('/api/incidents', { method: 'DELETE' });
+        fetchIncidents();
+        fetchStats();
+    } catch (error) {
+        console.error('Failed to clear incidents:', error);
+    }
+}
+
+async function fetchStats() {
+    try {
+        const bucket = bucketSelect.value;
+        const response = await fetch(`/api/stats/frequency?minutes=${bucket}&t=${Date.now()}`);
+        const data = await response.json();
+        renderHistogram(data);
+    } catch (error) {
+        console.error('Failed to fetch stats:', error);
+    }
+}
+
+function renderHistogram(data) {
+    if (!data.length) return;
+    const max = Math.max(...data.map(d => d.count));
+    histogramContainer.innerHTML = '';
+    
+    // Show last 24 buckets
+    data.reverse().forEach(d => {
+        const bar = document.createElement('div');
+        bar.className = 'hist-bar';
+        const height = (d.count / max) * 100;
+        bar.style.height = `${Math.max(height, 5)}%`;
+        bar.setAttribute('data-count', d.count);
+        bar.title = `${d.bucket}: ${d.count} incidents`;
+        histogramContainer.appendChild(bar);
+    });
+}
+
 function renderIncidents(incidents) {
     container.innerHTML = '';
+    if (incidents.length === 0) {
+        container.innerHTML = '<div class="empty-state">No incidents found. Cluster is healthy! 🦅✅</div>';
+        return;
+    }
     incidents.forEach(inc => {
         const card = document.createElement('div');
         card.className = 'card';
@@ -28,12 +75,11 @@ function renderIncidents(incidents) {
             <div class="card-body">
                 <h3>${inc.reason}</h3>
                 <p class="meta">${inc.object_kind}/${inc.object_name}</p>
-                <p class="meta">Namespace: ${inc.namespace}</p>
             </div>
-                <div class="card-footer">
-                    <span class="meta">${new Date(inc.timestamp).toLocaleTimeString()}</span>
-                    <span class="token-count">🎟️ ${inc.total_tokens.toLocaleString()} tokens</span>
-                </div>
+            <div class="card-footer">
+                <span class="token-count">🎟️ ${inc.total_tokens.toLocaleString()} tokens</span>
+                <span class="meta">${new Date(inc.timestamp).toLocaleTimeString()}</span>
+            </div>
         `;
         card.onclick = () => showDetail(inc.incident_id);
         container.appendChild(card);
@@ -79,9 +125,12 @@ function renderActions(actions) {
 }
 
 closeBtn.onclick = () => detailPanel.classList.add('hidden');
-refreshBtn.onclick = fetchIncidents;
+refreshBtn.onclick = () => { fetchIncidents(); fetchStats(); };
+clearBtn.onclick = clearIncidents;
+bucketSelect.onchange = fetchStats;
 
 // Initial load
 fetchIncidents();
+fetchStats();
 // Polling
-setInterval(fetchIncidents, 10000);
+setInterval(() => { fetchIncidents(); fetchStats(); }, 10000);

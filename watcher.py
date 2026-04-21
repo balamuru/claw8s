@@ -65,9 +65,64 @@ class KubernetesWatcher:
 
     def start(self, loop: asyncio.AbstractEventLoop):
         """Start the watcher in a background thread."""
+        self.loop = loop
         t = threading.Thread(target=self._watch_loop, args=(loop,), daemon=True)
         t.start()
+        # Start proactive scanner for pods stuck in Pending/BackOff
+        self.loop.create_task(self._stale_pod_scanner())
         log.info("K8s watcher started")
+
+    async def _stale_pod_scanner(self):
+        """Periodically scan for pods stuck in bad states without recent events."""
+        log.info("Proactive stale pod scanner started.")
+        while not self._stop_event.is_set():
+            try:
+                # We need a thread-safe way to list pods from asyncio
+                from kubernetes import client as k8s_client
+                v1 = k8s_client.CoreV1Api()
+                pods = await asyncio.to_thread(v1.list_pod_for_all_namespaces)
+                
+                for pod in pods.items:
+                    # Ignore healthy pods
+                    if pod.status.phase == "Running":
+                        is_ready = True
+                        for cs in (pod.status.container_statuses or []):
+                            if not cs.ready:
+                                is_ready = False
+                                break
+                        if is_ready:
+                            continue
+                    
+                    reason = None
+                    message = ""
+                    if pod.status.phase == "Pending":
+                        reason = "FailedScheduling"
+                        message = "Pod stuck in Pending state (proactive scan)"
+                    
+                    for cs in (pod.status.container_statuses or []):
+                        if cs.state.waiting:
+                            if cs.state.waiting.reason in ["CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull"]:
+                                reason = cs.state.waiting.reason
+                                message = f"Container {cs.name} stuck in {reason} (proactive scan)"
+                    
+                    if reason:
+                        incident = Incident(
+                            id=str(uuid.uuid4()),
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            namespace=pod.metadata.namespace,
+                            object_kind="Pod",
+                            object_name=pod.metadata.name,
+                            reason=reason,
+                            message=message,
+                            count=1,
+                            raw={"source": "proactive_scanner"}
+                        )
+                        # Use unified queue method (handles debounce)
+                        self._queue_incident(incident, self.loop)
+                        
+            except Exception as e:
+                log.error(f"Stale pod scanner error: {e}")
+            await asyncio.sleep(60)
 
     def stop(self):
         self._stop_event.set()
@@ -127,36 +182,33 @@ class KubernetesWatcher:
             message = obj.message or ""
             count = obj.count or 1
 
-            # Debounce check
-            debounce_key = (namespace, object_kind, object_name, reason)
-            now = datetime.now(timezone.utc).timestamp()
-            with self._lock:
-                last = self._debounce.get(debounce_key, 0)
-                if now - last < self.cfg.debounce_seconds:
-                    return
-                self._debounce[debounce_key] = now
-
+            # 5. Queue the incident (unified method handles debounce)
             incident = Incident(
                 id=str(uuid.uuid4()),
-                timestamp=now_iso(),
+                timestamp=event_time.isoformat(),
                 namespace=namespace,
                 object_kind=object_kind,
                 object_name=object_name,
                 reason=reason,
                 message=message,
                 count=count,
-                raw={
-                    "namespace": namespace,
-                    "kind": object_kind,
-                    "name": object_name,
-                    "reason": reason,
-                    "message": message,
-                    "count": count,
-                },
+                raw=obj.to_dict(),
             )
-
-            log.info(f"Incident queued: [{reason}] {object_kind}/{object_name} in {namespace}")
-            asyncio.run_coroutine_threadsafe(self.queue.put(incident), loop)
+            self._queue_incident(incident, loop)
 
         except Exception as e:
             log.error(f"Error processing event: {e}", exc_info=True)
+
+    def _queue_incident(self, incident: Incident, loop: asyncio.AbstractEventLoop):
+        """Unified method to queue incidents with debounce check."""
+        debounce_key = (incident.namespace, incident.object_kind, incident.object_name, incident.reason)
+        now = datetime.now(timezone.utc).timestamp()
+        
+        with self._lock:
+            last = self._debounce.get(debounce_key, 0)
+            if now - last < self.cfg.debounce_seconds:
+                return
+            self._debounce[debounce_key] = now
+
+        log.info(f"Incident queued: [{incident.reason}] {incident.object_kind}/{incident.object_name} in {incident.namespace}")
+        loop.call_soon_threadsafe(self.queue.put_nowait, incident)
