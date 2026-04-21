@@ -54,12 +54,15 @@ async def get_pod_logs(**kwargs) -> ToolResult:
 
     if not name:
         return ToolResult(success=False, output="Error: 'name' (pod name) is required.")
+
+    name = await _resolve_active_pod_name(name, namespace)
+
     try:
         v1 = k8s_client.CoreV1Api()
         k8s_kwargs = {"name": name, "namespace": namespace, "tail_lines": tail_lines, "timestamps": True}
         if container_name:
             k8s_kwargs["container"] = container_name
-        logs = await asyncio.to_thread(v1.read_namespaced_pod_log, **kwargs)
+        logs = await asyncio.to_thread(v1.read_namespaced_pod_log, **k8s_kwargs)
         return ToolResult(success=True, output=logs or "(no logs)")
     except Exception as e:
         return ToolResult(success=False, output=str(e))
@@ -83,6 +86,9 @@ async def describe_pod(**kwargs) -> ToolResult:
 
     if not name:
         return ToolResult(success=False, output="Error: 'name' (pod name) is required.")
+    
+    name = await _resolve_active_pod_name(name, namespace)
+    
     try:
         v1 = k8s_client.CoreV1Api()
         pod = await asyncio.to_thread(v1.read_namespaced_pod, name=name, namespace=namespace)
@@ -165,9 +171,40 @@ async def get_deployment_status(**kwargs) -> ToolResult:
 
     if not name:
         return ToolResult(success=False, output="Error: 'name' (deployment name) is required.")
+
+    # Auto-resolve: if name is actually a pod, find the deployment owner
+    resolved_name = name
+    try:
+        v1 = k8s_client.CoreV1Api()
+        pod = await asyncio.to_thread(v1.read_namespaced_pod, name=name, namespace=namespace)
+        for owner in pod.metadata.owner_references or []:
+            if owner.kind == "ReplicaSet":
+                apps_v1 = k8s_client.AppsV1Api()
+                rs = await asyncio.to_thread(apps_v1.read_namespaced_replica_set, name=owner.name, namespace=namespace)
+                for rs_owner in rs.metadata.owner_references or []:
+                    if rs_owner.kind == "Deployment":
+                        resolved_name = rs_owner.name
+                        break
+    except:
+        # Fallback for stale pods: if the pod is already gone, try to derive deployment name
+        parts = name.split("-")
+        if len(parts) > 2:
+            apps_v1 = k8s_client.AppsV1Api()
+            potential_name = "-".join(parts[:-2])
+            try:
+                await asyncio.to_thread(apps_v1.read_namespaced_deployment, name=potential_name, namespace=namespace)
+                resolved_name = potential_name
+            except:
+                potential_name = "-".join(parts[:-1])
+                try:
+                    await asyncio.to_thread(apps_v1.read_namespaced_deployment, name=potential_name, namespace=namespace)
+                    resolved_name = potential_name
+                except:
+                    pass
+
     try:
         apps_v1 = k8s_client.AppsV1Api()
-        d = await asyncio.to_thread(apps_v1.read_namespaced_deployment, name=name, namespace=namespace)
+        d = await asyncio.to_thread(apps_v1.read_namespaced_deployment, name=resolved_name, namespace=namespace)
         info = {
             "desired": d.spec.replicas,
             "ready": d.status.ready_replicas,
@@ -199,9 +236,42 @@ async def get_deployment(**kwargs) -> ToolResult:
 
     if not name:
         return ToolResult(success=False, output="Error: 'name' (deployment name) is required.")
+    
+    # Auto-resolve: if name is actually a pod, find the deployment owner
+    resolved_name = name
+    try:
+        v1 = k8s_client.CoreV1Api()
+        pod = await asyncio.to_thread(v1.read_namespaced_pod, name=name, namespace=namespace)
+        for owner in pod.metadata.owner_references or []:
+            if owner.kind == "ReplicaSet":
+                apps_v1 = k8s_client.AppsV1Api()
+                rs = await asyncio.to_thread(apps_v1.read_namespaced_replica_set, name=owner.name, namespace=namespace)
+                for rs_owner in rs.metadata.owner_references or []:
+                    if rs_owner.kind == "Deployment":
+                        resolved_name = rs_owner.name
+                        break
+    except:
+        # Fallback for stale pods: if the pod is already gone, try to derive deployment name
+        parts = name.split("-")
+        if len(parts) > 2:
+            apps_v1 = k8s_client.AppsV1Api()
+            # Try stripping last two parts (standard deployment-rs-pod format)
+            potential_name = "-".join(parts[:-2])
+            try:
+                await asyncio.to_thread(apps_v1.read_namespaced_deployment, name=potential_name, namespace=namespace)
+                resolved_name = potential_name
+            except:
+                # Then try stripping just one part
+                potential_name = "-".join(parts[:-1])
+                try:
+                    await asyncio.to_thread(apps_v1.read_namespaced_deployment, name=potential_name, namespace=namespace)
+                    resolved_name = potential_name
+                except:
+                    pass
+
     try:
         apps_v1 = k8s_client.AppsV1Api()
-        d = await asyncio.to_thread(apps_v1.read_namespaced_deployment, name=name, namespace=namespace)
+        d = await asyncio.to_thread(apps_v1.read_namespaced_deployment, name=resolved_name, namespace=namespace)
         # Convert to dict and clean up for LLM readability
         d_dict = k8s_client.ApiClient().sanitize_for_serialization(d)
         return ToolResult(success=True, output=json.dumps(d_dict, indent=2))
@@ -394,6 +464,27 @@ async def delete_pod(**kwargs) -> ToolResult:
         return ToolResult(success=True, output=f"Pod {name} deleted. Reason: {reason}")
     except Exception as e:
         return ToolResult(success=False, output=str(e))
+
+
+async def _resolve_active_pod_name(name: str, namespace: str) -> str:
+    """If a pod is missing, try to find a replacement in the same deployment."""
+    v1 = k8s_client.CoreV1Api()
+    try:
+        await asyncio.to_thread(v1.read_namespaced_pod, name=name, namespace=namespace)
+        return name
+    except:
+        parts = name.split("-")
+        if len(parts) > 2:
+            prefix = "-".join(parts[:-2])
+            try:
+                all_pods = await asyncio.to_thread(v1.list_namespaced_pod, namespace=namespace)
+                matches = [p for p in all_pods.items if p.metadata.name.startswith(prefix)]
+                if matches:
+                    matches.sort(key=lambda x: x.metadata.creation_timestamp or 0, reverse=True)
+                    return matches[0].metadata.name
+            except:
+                pass
+        return name
 
 
 @registry.tool(

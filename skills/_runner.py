@@ -31,6 +31,7 @@ Use {{ variable }} in any string value.  Supported lookups:
   {{ step_id }}                 plain string result (e.g. classify)
 """
 
+import json
 import logging
 import re
 from typing import Any
@@ -208,18 +209,25 @@ class SkillRunner:
         try:
             # We use a fresh chat for classification to keep it simple and stateless
             turn = await self._backend.chat(
-                system="You are an incident classifier.",
+                system="You are an incident classifier. Output ONLY the key of the chosen category.",
                 tools=[],  # no tools for classification
                 user_message=prompt,
                 model=self._model,
-                max_tokens=16,
+                max_tokens=32,
             )
             raw = (turn.text or "").strip().lower()
+            log.info(f"[skill:{skill_name}] LLM classify raw response: '{raw}'")
+            
+            if not raw:
+                return "unknown"
+
             # Match to the closest valid key
             for key in categories:
                 if key in raw:
                     return key
-            log.warning(f"[skill:{skill_name}] Classify response '{raw}' matched no category.")
+            
+            log.warning(f"[skill:{skill_name}] Classify response matched no category.")
+            return "unknown"
         except Exception as e:
             log.error(f"[skill:{skill_name}] LLM classify failed: {e}")
 
@@ -260,6 +268,15 @@ class SkillRunner:
         if case.get("inconclusive"):
             return SkillResult(
                 inconclusive=True, findings=findings, actions_taken=actions_taken
+            )
+
+        # ── Summary only (successful conclusion without action) ──────────
+        if "summary" in case and "tool" not in case:
+            summary = _render(case["summary"], ctx)
+            return SkillResult(
+                summary=summary,
+                findings=findings,
+                actions_taken=actions_taken,
             )
 
         # ── Execute a tool, then optionally verify ────────────────────────

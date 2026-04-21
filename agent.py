@@ -60,7 +60,7 @@ class Claw8sAgent:
         self.registry = tool_registry
         self.audit = audit
         self.approval_callback = approval_callback  # async callable
-        self.skill_runner = SkillRunner(tool_registry, api_key, audit, cfg.provider, cfg.base_url)
+        self.skill_runner = SkillRunner(tool_registry, api_key, audit, cfg.provider, cfg.base_url, cfg.model)
 
     async def run(self, incident: Incident) -> AgentResult:
         # ── Try skills first ──────────────────────────────────────────
