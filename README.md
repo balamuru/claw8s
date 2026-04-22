@@ -79,14 +79,13 @@ Claw8s will start the watcher, the Telegram bot, and the **Dashboard** on `http:
 
 ---
 
-## 📊 Configuration
+## 📊 Configuration & Customization
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `watcher.debounce_seconds` | `120` | Cooldown between same-incident triggers |
-| `agent.provider` | `anthropic` | LLM provider |
-| `agent.model` | `claude-3-5-sonnet` | LLM model name |
-| `agent.auto_remediate_threshold` | `0.85` | Confidence below this → ask for approval |
+Claw8s is designed to adapt to your specific cluster and operational needs.
+
+*   **[LLM Configuration Guide](docs/CONFIGURATION.md)**: Detailed instructions for **Anthropic**, **OpenAI**, **Gemini**, and **Ollama**.
+*   **[Skills Authoring Guide](docs/SKILLS.md)**: Learn how to write your own deterministic YAML runbooks.
+*   **[System Architecture](docs/ARCHITECTURE.md)**: A deep dive into the "Soul vs. Skill" hierarchy and event flow.
 
 ---
 
